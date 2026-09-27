@@ -169,6 +169,34 @@ final class CoreSmokeTests: XCTestCase {
         XCTAssertThrowsError(try connectLoopback(port: Self.mixedPort))
     }
 
+    func test17_exportedTrafficStringsAreCallerOwned() throws {
+        // getTraffic/getTotalTraffic (core/lib.go) return a malloc'ed JSON
+        // string the caller frees. Run under Address Sanitizer in CI, so a
+        // string freed by Go before returning would be reported here.
+        let exports: [(String, (GoUint8) -> UnsafeMutablePointer<CChar>?)] = [
+            ("getTraffic", { getTraffic($0) }),
+            ("getTotalTraffic", { getTotalTraffic($0) }),
+        ]
+        for i in 0..<500 {
+            for (name, export) in exports {
+                let pointer = try XCTUnwrap(export(GoUint8(i % 2)), name)
+                let json = String(cString: pointer)
+                free(pointer)
+                let traffic = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any], "\(name): \(json)")
+                XCTAssertNotNil(traffic["up"] as? NSNumber, "\(name): \(json)")
+                XCTAssertNotNil(traffic["down"] as? NSNumber, "\(name): \(json)")
+            }
+        }
+        // test06 downloaded through DIRECT, which counts when not limited
+        // to proxy traffic.
+        let pointer = try XCTUnwrap(getTotalTraffic(0))
+        defer { free(pointer) }
+        let json = String(cString: pointer)
+        let total = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any], json)
+        XCTAssertGreaterThan((total["down"] as? NSNumber)?.int64Value ?? 0, 0, json)
+    }
+
     // MARK: - Helpers
 
     private static func config(port: UInt16, rules: [String]) -> String {

@@ -142,5 +142,8 @@ schemes:
     test:
       config: Debug
       gatherCoverageData: false
+      # Catches use-after-free / double free on the C side of the bridge
+      # (strings and callbacks passed between Swift and Go).
+      enableAddressSanitizer: true
       targets:
         - CoreSmokeTests

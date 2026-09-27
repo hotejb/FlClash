@@ -13,6 +13,8 @@ struct ClashCoreError: LocalizedError {
 ///   `release_object_func(callback)` (except for event-listener messages).
 /// - Strings passed *into* Go are malloc'ed (strdup) and freed by Go through
 ///   `free_string_func`.
+/// - Strings returned *by* Go exports (getTraffic, getTotalTraffic) are
+///   malloc'ed and owned by the caller, who frees them with free(3).
 /// - protect/resolve_process are never called on iOS (see core/bride_ios.go).
 final class ClashCore {
     static let shared = ClashCore()

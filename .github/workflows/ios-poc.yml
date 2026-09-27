@@ -179,6 +179,7 @@ jobs:
             -scheme CoreSmokeTests \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath CoreSmokeTests.xcresult \
+            -enableAddressSanitizer YES \
             POC_BUNDLE_ID=com.example.flclash.ci \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee xcodebuild-test.log | xcbeautify --renderer github-actions

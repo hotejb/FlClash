@@ -10,8 +10,11 @@ The extension runs the same Go core as Android (`core/`, built as a static
 Flutter app: `initClash` → `setupConfig` → `startListener` → `startTUN(fd)`.
 It publishes its memory footprint to the app once a second through the App Group.
 
-> Status: written and reviewed on Linux. Nothing here has been compiled with
-> Xcode or run on a device yet. See "Known unverified points" below.
+> Status: CI (`.github/workflows/ios-poc.yml`, macOS + Xcode) builds the Go
+> core for the device and links the app and extension, unsigned. It also runs
+> the Go core bridge smoke tests on the iOS Simulator. Nothing has run on a
+> device or inside a packet tunnel extension yet. See "What CI covers" and
+> "Known unverified points" below.
 
 ## Prerequisites
 
@@ -137,19 +140,37 @@ tested on a device.
 | `PacketTunnel/PacketTunnel-Bridging-Header.h` | Imports `libclash.h` and `bride.h` |
 | `CoreSmokeTests/` | Simulator XCTest bundle for the Go core bridge (see above) |
 
+## What CI covers
+
+- **Device build.** `dart setup.dart ios` (clang with the iPhoneOS SDK) and an
+  unsigned `xcodebuild` of the app and the `PacketTunnel` extension for
+  `iphoneos`. The extension compiles and links against `libclash.a` with
+  `-lclash -lresolv` plus the NetworkExtension, Security and CoreFoundation
+  frameworks. Code signing and the entitlements themselves aren't checked.
+- **Simulator runtime (`CoreSmokeTests`, Address Sanitizer on).** The Go
+  runtime starts in an iOS process, including package `init()`s such as the
+  `/dev/null` open in `core/platform/limit.go` and the 35 MB
+  `SetMemoryLimit`. The tests also cover the `bride.h` callbacks and their
+  retain/release, `initClash`, `setupConfig` with valid and invalid configs,
+  the mixed listener proxying HTTP over DIRECT, the `getProxies`,
+  `getTraffic`, `getConnections` and `getMemory` actions (the last goes
+  through purego `dlopen`), `forceGc`, the exported
+  `getTraffic`/`getTotalTraffic` C strings, `stopListener` and `shutdown`.
+
 ## Known unverified points
 
-- **Nothing has been built on macOS yet.** The Go side was type-checked for
-  `GOOS=ios` on Linux with the cgo calls stubbed out. The real clang/SDK build,
-  the link step and all Swift code are untested. The extension links
-  `-lclash -lresolv` plus the NetworkExtension, Security and CoreFoundation
-  frameworks. The Go runtime and stdlib may need more on some SDKs; add them in
-  `project.yml` if the link fails.
+These need a device:
+
+- **The extension sandbox.** CI never loads the extension, so App Group
+  access, `/dev/null` and file access inside the Network Extension sandbox are
+  untested. The simulator tests run the core in a plain test process.
+- **Memory.** The ~50 MB extension limit, jetsam and `phys_footprint` numbers
+  are what this PoC is for. The simulator can't measure them.
 - **utun fd discovery.** The fd scan is the approach used by other iOS clients.
   The KVC fallback only helps on older iOS versions.
 - **`core/platform/limit.go`** opens `/dev/null` in `init()` and panics if that
-  fails. That's expected to work in the extension sandbox, but not verified.
-  A failure would crash the extension on load.
+  fails. It works in the simulator test process. The extension sandbox hasn't
+  been checked, and a failure there would crash the extension on load.
 - **System DNS.** mihomo only lets the host set system DNS servers on Android.
   On iOS `updateDns` is a no-op, and mihomo's "system" resolver reads
   `/etc/resolv.conf`, which is probably unreadable or absent in the sandbox. Use
@@ -165,7 +186,5 @@ tested on a device.
   Group on first start. That costs time and memory, and GeoSite matching is
   memory-heavy. Measure with and without these rules.
 - **`startTUN` reports no errors.** Go only logs a TUN start failure. Check the
-  error log lines in the app.
-- The `getTraffic`/`getTotalTraffic` exports in `core/lib.go` free the returned
-  C string before returning it. This bug predates the PoC. The PoC doesn't call
-  them, and they need fixing before any real iOS use.
+  error log lines in the app. `startTUN` and all TUN stacks are untested:
+  the simulator can't run packet tunnels.
