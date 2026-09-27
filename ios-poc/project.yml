@@ -1,0 +1,106 @@
+# XcodeGen spec for the FlClash iOS memory proof of concept.
+# Generate the project with `xcodegen` (see README.md); the .xcodeproj,
+# Info.plist and .entitlements files are generated and not checked in.
+#
+# ---------------------------------------------------------------------------
+# CHANGE THESE before generating. They are plain Xcode build settings, so the
+# values flow into bundle ids, entitlements and Info.plist automatically.
+#
+#   DEVELOPMENT_TEAM  your 10-character Apple team id
+#   POC_BUNDLE_ID     app bundle id; the extension is POC_BUNDLE_ID.PacketTunnel
+#   POC_APP_GROUP     App Group shared by app and extension (must start with group.)
+# ---------------------------------------------------------------------------
+settings:
+  base:
+    DEVELOPMENT_TEAM: "ABCDE12345"
+    POC_BUNDLE_ID: com.example.flclash.poc
+    POC_APP_GROUP: group.com.example.flclash.poc
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    ENABLE_BITCODE: NO
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+name: FlClashPoC
+
+options:
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+targets:
+  FlClashPoC:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(POC_BUNDLE_ID)
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: FlClash PoC
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        POCAppGroup: $(POC_APP_GROUP)
+        POCTunnelBundleId: $(POC_BUNDLE_ID).PacketTunnel
+    entitlements:
+      path: App/App.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - $(POC_APP_GROUP)
+    dependencies:
+      - target: PacketTunnel
+        embed: true
+      - sdk: NetworkExtension.framework
+
+  PacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - PacketTunnel
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(POC_BUNDLE_ID).PacketTunnel
+        GENERATE_INFOPLIST_FILE: NO
+        # Go core built by `dart setup.dart ios` (libclash.a, libclash.h, bride.h).
+        SWIFT_OBJC_BRIDGING_HEADER: PacketTunnel/PacketTunnel-Bridging-Header.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../libclash/ios
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/../libclash/ios
+        # libclash.a carries no link directives of its own: the Go runtime and
+        # stdlib need CoreFoundation, Security (crypto/x509) and libresolv (net).
+        OTHER_LDFLAGS:
+          - -lclash
+          - -lresolv
+        DEAD_CODE_STRIPPING: YES
+    info:
+      path: PacketTunnel/Info.plist
+      properties:
+        CFBundleDisplayName: PacketTunnel
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        POCAppGroup: $(POC_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: PacketTunnel/PacketTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - $(POC_APP_GROUP)
+    dependencies:
+      - sdk: NetworkExtension.framework
+      - sdk: Security.framework
+      - sdk: CoreFoundation.framework
