@@ -90,6 +90,30 @@ the system launches the extension, so you can't easily set one. To try other
 values, change `defaultIOSMemoryLimit` and rebuild. This limit covers the Go
 runtime only. It isn't a hard cap on the process.
 
+## Simulator smoke tests
+
+`CoreSmokeTests` is a hostless unit-test bundle that drives the Go core
+through `PacketTunnel/ClashCore.swift` on the iOS Simulator: Go runtime start
+in an iOS process, the `bride.h` callbacks (result, `release_object`,
+`free_string`), JSON action round trips, config parsing, the mixed listener
+(including an HTTP request proxied to a loopback server), `forceGc`,
+callback release after 200+ invokes, `stopListener` and `shutdown`. It needs
+no signing, entitlements or network access. CI runs it on every push
+(`.github/workflows/ios-poc.yml`).
+
+```sh
+# From the repository root: Apple Silicon simulator build of the core.
+dart setup.dart ios --simulator
+#    -> libclash/ios-simulator/libclash.a, libclash.h, bride.h
+cd ios-poc && xcodegen
+xcodebuild test -project FlClashPoC.xcodeproj -scheme CoreSmokeTests \
+  -destination 'platform=iOS Simulator,name=iPhone 16'
+```
+
+The test target picks `libclash/ios-simulator` or `libclash/ios` per SDK.
+The TUN path, the extension sandbox and the real memory limit can only be
+tested on a device.
+
 ## Debugging
 
 - Console.app: filter on subsystem `FlClashPoC` for stage transitions, the
@@ -111,6 +135,7 @@ runtime only. It isn't a hard cap on the process.
 | `PacketTunnel/ClashCore.swift` | Swift side of `core/bride.h` callbacks + JSON Action calls |
 | `PacketTunnel/TunnelFD.swift` | Finds the utun fd (scan fds for `UTUN_OPT_IFNAME`, KVC fallback) |
 | `PacketTunnel/PacketTunnel-Bridging-Header.h` | Imports `libclash.h` and `bride.h` |
+| `CoreSmokeTests/` | Simulator XCTest bundle for the Go core bridge (see above) |
 
 ## Known unverified points
 

@@ -104,3 +104,43 @@ targets:
       - sdk: NetworkExtension.framework
       - sdk: Security.framework
       - sdk: CoreFoundation.framework
+
+  # Runtime smoke tests for the Go core <-> Swift bridge, run on the iOS
+  # Simulator (`dart setup.dart ios --simulator`, see README.md). A hostless
+  # unit-test bundle: it compiles ClashCore.swift directly and links libclash
+  # itself, so no App Group / Network Extension entitlements are involved.
+  CoreSmokeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - CoreSmokeTests
+      - path: PacketTunnel/ClashCore.swift
+        group: CoreSmokeTests/Linked
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(POC_BUNDLE_ID).CoreSmokeTests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_OBJC_BRIDGING_HEADER: PacketTunnel/PacketTunnel-Bridging-Header.h
+        # One libclash per SDK: the simulator build for tests, the device
+        # build otherwise.
+        "HEADER_SEARCH_PATHS[sdk=iphonesimulator*]": $(SRCROOT)/../libclash/ios-simulator
+        "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": $(SRCROOT)/../libclash/ios-simulator
+        "HEADER_SEARCH_PATHS[sdk=iphoneos*]": $(SRCROOT)/../libclash/ios
+        "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": $(SRCROOT)/../libclash/ios
+        OTHER_LDFLAGS:
+          - -lclash
+          - -lresolv
+    dependencies:
+      - sdk: Security.framework
+      - sdk: CoreFoundation.framework
+
+schemes:
+  CoreSmokeTests:
+    build:
+      targets:
+        CoreSmokeTests: [test]
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - CoreSmokeTests

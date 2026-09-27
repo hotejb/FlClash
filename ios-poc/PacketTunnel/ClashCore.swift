@@ -22,6 +22,24 @@ final class ClashCore {
         init(_ handler: @escaping (String) -> Void) { self.handler = handler }
     }
 
+    private static let liveLock = NSLock()
+    private static var live = 0
+
+    /// Callbacks handed to Go that Go has not released yet (includes the
+    /// event listener while one is installed). Used by the smoke tests to
+    /// check the retain/release contract.
+    static var liveCallbacks: Int {
+        liveLock.lock()
+        defer { liveLock.unlock() }
+        return live
+    }
+
+    private static func adjustLive(_ delta: Int) {
+        liveLock.lock()
+        live += delta
+        liveLock.unlock()
+    }
+
     private init() {
         result_func = { context, data in
             guard let context, let data else { return }
@@ -30,6 +48,7 @@ final class ClashCore {
         release_object_func = { context in
             guard let context else { return }
             Unmanaged<Callback>.fromOpaque(context).release()
+            ClashCore.adjustLive(-1)
         }
         free_string_func = { pointer in
             free(pointer)
@@ -39,7 +58,8 @@ final class ClashCore {
     }
 
     private static func retained(_ handler: @escaping (String) -> Void) -> UnsafeMutableRawPointer {
-        Unmanaged.passRetained(Callback(handler)).toOpaque()
+        adjustLive(1)
+        return Unmanaged.passRetained(Callback(handler)).toOpaque()
     }
 
     /// Sends one Action (core/action.go) and blocks until its ActionResult arrives.
@@ -53,24 +73,7 @@ final class ClashCore {
             "data": data ?? NSNull(),
         ]
         let json = String(decoding: try JSONSerialization.data(withJSONObject: action), as: UTF8.self)
-
-        let done = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var raw: String?
-        let callback = Self.retained { value in
-            lock.lock()
-            raw = value
-            lock.unlock()
-            done.signal()
-        }
-        invokeAction(callback, strdup(json))
-
-        guard done.wait(timeout: .now() + timeout) == .success else {
-            throw ClashCoreError(message: "\(method): timed out after \(Int(timeout))s")
-        }
-        lock.lock()
-        let output = raw ?? ""
-        lock.unlock()
+        let output = try invokeRaw(json, label: method, timeout: timeout)
 
         guard let object = try? JSONSerialization.jsonObject(with: Data(output.utf8), options: [.fragmentsAllowed]),
               let result = object as? [String: Any]
@@ -84,16 +87,50 @@ final class ClashCore {
         return result["data"] is NSNull ? nil : result["data"]
     }
 
+    /// Passes `json` to invokeAction as is and blocks until Go replies,
+    /// returning the raw reply (an ActionResult JSON, or a bare error string
+    /// if `json` is not a valid Action).
+    func invokeRaw(_ json: String, label: String = "invokeAction", timeout: TimeInterval = 60) throws -> String {
+        let done = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var raw: String?
+        let callback = Self.retained { value in
+            lock.lock()
+            raw = value
+            lock.unlock()
+            done.signal()
+        }
+        invokeAction(callback, strdup(json))
+
+        guard done.wait(timeout: .now() + timeout) == .success else {
+            throw ClashCoreError(message: "\(label): timed out after \(Int(timeout))s")
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        return raw ?? ""
+    }
+
     /// Same sequence the Flutter app drives (lib/core/controller.dart +
     /// lib/state.dart): initClash(home-dir, version) -> setupConfig(params),
     /// which parses <home-dir>/config.yaml -> startListener.
     func start(homeDir: URL) throws {
+        try initClash(homeDir: homeDir)
+        try setupConfig()
+        try invoke(method: "startListener")
+    }
+
+    /// initClash: sets the Go core's home dir (only the first call per
+    /// process takes effect, see core/hub.go handleInitClash).
+    func initClash(homeDir: URL) throws {
         let osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         let initParams = try jsonString(["home-dir": homeDir.path, "version": osMajor])
         guard (try invoke(method: "initClash", data: initParams)) as? Bool == true else {
             throw ClashCoreError(message: "initClash returned false")
         }
+    }
 
+    /// setupConfig: parses and applies <home-dir>/config.yaml.
+    func setupConfig() throws {
         // Defaults from core/common.go defaultSetupParams().
         let setupParams = try jsonString([
             "selected-map": [String: String](),
@@ -104,8 +141,6 @@ final class ClashCore {
             // Go falls back to an empty default config in this case.
             throw ClashCoreError(message: "setupConfig: \(setupError)")
         }
-
-        try invoke(method: "startListener")
     }
 
     /// Forwards core log events at warning level or above (the config's

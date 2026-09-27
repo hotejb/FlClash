@@ -1,7 +1,8 @@
 name: ios-poc
 
 # Compile check for the iOS port: Go core as a c-archive + the XcodeGen PoC
-# (app + PacketTunnel extension), unsigned.
+# (app + PacketTunnel extension), unsigned. Plus runtime smoke tests of the
+# Go core <-> Swift bridge (CoreSmokeTests) on the iOS Simulator.
 on:
   push:
     branches:
@@ -94,4 +95,100 @@ jobs:
         with:
           name: xcodebuild-log
           path: ios-poc/xcodebuild.log
+          if-no-files-found: ignore
+
+  simulator-tests:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Init submodules
+        run: |
+          git -c url."https://github.com/".insteadOf="git@github.com:" \
+            submodule update --init --depth 1 core/Clash.Meta
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache-dependency-path: |
+            core/go.sum
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.9.2
+
+      - name: Get setup.dart dependencies
+        run: |
+          mkdir -p "$RUNNER_TEMP/setup_deps"
+          cat > "$RUNNER_TEMP/setup_deps/pubspec.yaml" <<'EOF'
+          name: setup_deps
+          environment:
+            sdk: '>=3.8.0 <4.0.0'
+          dependencies:
+            args: 2.7.0
+            crypto: 3.0.7
+            path: 1.9.1
+          EOF
+          (cd "$RUNNER_TEMP/setup_deps" && dart pub get)
+
+      - name: Build Go core for the iOS Simulator
+        run: |
+          xcodebuild -version
+          dart --packages="$RUNNER_TEMP/setup_deps/.dart_tool/package_config.json" setup.dart ios --simulator
+          ls -l libclash/ios-simulator
+          test -f libclash/ios-simulator/libclash.a
+          test -f libclash/ios-simulator/libclash.h
+          test -f libclash/ios-simulator/bride.h
+          # Mach-O platforms in the archive (7 = iOS Simulator). Informational:
+          # linking the test bundle fails if they are wrong.
+          otool -l libclash/ios-simulator/libclash.a \
+            | awk '/LC_BUILD_VERSION/ { f = 1 } f && $1 == "platform" { print "platform", $2; f = 0 }' \
+            | sort | uniq -c
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          cd ios-poc && xcodegen
+
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          xcrun simctl list runtimes available
+          udid=$(xcrun simctl list devices available -j | jq -r '
+            [.devices | to_entries[]
+              | select(.key | contains("SimRuntime.iOS"))
+              | .value[] | select(.name | startswith("iPhone"))]
+            | last | .udid // empty')
+          if [ -z "$udid" ]; then
+            xcrun simctl list devices available
+            echo "No available iPhone simulator" >&2
+            exit 1
+          fi
+          xcrun simctl list devices available | grep "$udid"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: Run CoreSmokeTests
+        working-directory: ios-poc
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project FlClashPoC.xcodeproj \
+            -scheme CoreSmokeTests \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath CoreSmokeTests.xcresult \
+            POC_BUNDLE_ID=com.example.flclash.ci \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee xcodebuild-test.log | xcbeautify --renderer github-actions
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-smoke-tests
+          path: |
+            ios-poc/CoreSmokeTests.xcresult
+            ios-poc/xcodebuild-test.log
           if-no-files-found: ignore
