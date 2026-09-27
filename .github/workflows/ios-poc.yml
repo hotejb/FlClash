@@ -1,0 +1,87 @@
+name: ios-poc
+
+# Compile check for the iOS port: Go core as a c-archive + the XcodeGen PoC
+# (app + PacketTunnel extension), unsigned.
+on:
+  push:
+    branches:
+      - claude/slack-session-wz0xh2
+    paths:
+      - 'core/**'
+      - 'ios-poc/**'
+      - 'setup.dart'
+      - '.github/workflows/ios-poc.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Only what is needed: the mihomo core and the path dependency
+      # `flutter pub get` resolves (plugins/flutter_distributor is skipped).
+      - name: Init submodules
+        run: |
+          git -c url."https://github.com/".insteadOf="git@github.com:" \
+            submodule update --init --depth 1 core/Clash.Meta plugins/tray_manager
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache-dependency-path: |
+            core/go.sum
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.35.7
+          cache: true
+
+      - name: Get Flutter Dependency
+        run: |
+          flutter --version
+          flutter pub get
+
+      - name: Build Go core for iOS
+        run: |
+          xcodebuild -version
+          dart setup.dart ios
+          ls -l libclash/ios
+          test -f libclash/ios/libclash.a
+          test -f libclash/ios/libclash.h
+          test -f libclash/ios/bride.h
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          cd ios-poc && xcodegen
+
+      - name: Build app and PacketTunnel extension
+        working-directory: ios-poc
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project FlClashPoC.xcodeproj \
+            -target PacketTunnel \
+            -target FlClashPoC \
+            -sdk iphoneos \
+            -configuration Debug \
+            DEVELOPMENT_TEAM="" \
+            POC_BUNDLE_ID=com.example.flclash.ci \
+            POC_APP_GROUP=group.com.example.flclash.ci \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            2>&1 | tee xcodebuild.log | xcbeautify --renderer github-actions
+
+      - name: Upload xcodebuild log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ios-poc/xcodebuild.log
+          if-no-files-found: ignore
