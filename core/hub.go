@@ -82,7 +82,7 @@ func handleForceGC() {
 	log.Infoln("[APP] request force GC")
 	tunnel.InvalidateAllProxies()
 	runtime.GC()
-	if features.Android {
+	if features.Android || runtime.GOOS == "ios" {
 		debug.FreeOSMemory()
 	}
 }

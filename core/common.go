@@ -155,7 +155,9 @@ func updateListeners(cfg *config.Config) {
 	listener.ReCreateShadowSocks(general.ShadowSocksConfig, tunnel.Tunnel)
 	listener.ReCreateVmess(general.VmessConfig, tunnel.Tunnel)
 	listener.ReCreateTuic(general.TuicServer, tunnel.Tunnel)
-	if !features.Android {
+	// On Android and iOS the TUN device is owned by the host VPN service and
+	// started through startTUN, so the config's tun section is ignored.
+	if !features.Android && runtime.GOOS != "ios" {
 		listener.ReCreateTun(general.Tun, tunnel.Tunnel)
 	}
 }
