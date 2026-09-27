@@ -20,12 +20,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Only what is needed: the mihomo core and the path dependency
-      # `flutter pub get` resolves (plugins/flutter_distributor is skipped).
+      # Only the mihomo core is needed (plugins/* are skipped).
       - name: Init submodules
         run: |
           git -c url."https://github.com/".insteadOf="git@github.com:" \
-            submodule update --init --depth 1 core/Clash.Meta plugins/tray_manager
+            submodule update --init --depth 1 core/Clash.Meta
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -34,22 +33,33 @@ jobs:
           cache-dependency-path: |
             core/go.sum
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      # setup.dart only imports args, crypto and path. Resolve just those
+      # (versions from pubspec.lock) instead of the whole Flutter app, whose
+      # `flutter pub get` also pulls unrelated git dependencies. Dart 3.9.2 is
+      # the SDK bundled with Flutter 3.35.7 used by build.yaml.
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
         with:
-          channel: stable
-          flutter-version: 3.35.7
-          cache: true
+          sdk: 3.9.2
 
-      - name: Get Flutter Dependency
+      - name: Get setup.dart dependencies
         run: |
-          flutter --version
-          flutter pub get
+          mkdir -p "$RUNNER_TEMP/setup_deps"
+          cat > "$RUNNER_TEMP/setup_deps/pubspec.yaml" <<'EOF'
+          name: setup_deps
+          environment:
+            sdk: '>=3.8.0 <4.0.0'
+          dependencies:
+            args: 2.7.0
+            crypto: 3.0.7
+            path: 1.9.1
+          EOF
+          (cd "$RUNNER_TEMP/setup_deps" && dart pub get)
 
       - name: Build Go core for iOS
         run: |
           xcodebuild -version
-          dart setup.dart ios
+          dart --packages="$RUNNER_TEMP/setup_deps/.dart_tool/package_config.json" setup.dart ios
           ls -l libclash/ios
           test -f libclash/ios/libclash.a
           test -f libclash/ios/libclash.h
