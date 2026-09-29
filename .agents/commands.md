@@ -234,6 +234,26 @@ What those suites own:
   the order of the live status deck, where it sits, a list opening in place, and the confirmation before a force
   restart.
 
+## Syncing With Upstream
+
+`tool/sync_upstream.sh` merges the official `origin/dev`, then replays the FlClash layer of the mihomo Core (the commits
+between the submodule pointer and its merge base with `upstream/Alpha`) onto the latest Alpha, bumps `core/go.mod`, and
+commits both. `tool/verify_sync.sh` is the gate it runs: Core build, vet and tests, the Android ABIs, the iOS device and
+simulator archives (including the symbols `ios-poc` links against), `flutter analyze` on tracked paths and the
+`setup_hooks` tests. A failing gate, a merge conflict or a Core conflict restores the branch and the Core, and nothing is
+pushed.
+
+```bash
+tool/sync_upstream.sh              # merge upstream, rebase the Core layer, quick gate
+tool/sync_upstream.sh --core-only  # or --app-only
+tool/verify_sync.sh --full         # adds flutter test, the Android package and the iOS CoreSmokeTests
+```
+
+- The rebased Core commit lives on the local `alpha-flclash` branch of `core/Clash.Meta`; push it to the fork
+  (`.gitmodules` points there) before pushing the main repo, or a fresh clone cannot fetch the pointer.
+- The gate cannot see runtime behaviour, such as an upstream change of the default TUN stack. Test on a device now and then.
+- Untracked checkouts under `vendor/` or `plugins/` make `flutter test` fail through `test/lint/design_package_test.dart`.
+
 ## Native Component Verification
 
 The CI Go-wrapper checks can be reproduced without CGO. They cover the Android files too, except the cgo one in
