@@ -89,7 +89,11 @@ verify_ios_core() {
 verify_dart() {
   step "dart: pub get, analyze, setup_hooks tests"
   flutter pub get
-  flutter analyze --no-fatal-infos
+  # Only tracked paths: an untracked checkout under vendor/ must not decide it.
+  local paths
+  paths="$(git ls-files '*.dart' | awk -F/ '{print (NF > 1 ? $1 : $0)}' | sort -u)"
+  # shellcheck disable=SC2086
+  flutter analyze --no-fatal-infos $paths
   (cd plugins/setup/setup_hooks && dart pub get >/dev/null && dart test)
 }
 
