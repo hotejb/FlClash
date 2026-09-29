@@ -33,13 +33,51 @@ Map<String, String> _bindgenEnvironment(BuildInput input) {
       '${llvmRoot.path}${Platform.pathSeparator}$name',
     );
     if (directory.existsSync() && directory.listSync().any(_isLibclang)) {
-      return {'LIBCLANG_PATH': directory.path};
+      return {
+        'LIBCLANG_PATH': directory.path,
+        ..._bindgenClangArgs(input, llvmRoot.path),
+      };
     }
   }
   throw StateError(
     'No libclang under ${llvmRoot.path} (lib or lib64); the NDK Flutter '
     'passed cannot run bindgen for rquickjs',
   );
+}
+
+// NDK 30's bionic headers reject a target triple without an API level, and
+// bindgen hands libclang the bare Rust triple. native_toolchain_rust only sets
+// the sysroot, and a variable passed here replaces its value, so repeat that.
+Map<String, String> _bindgenClangArgs(BuildInput input, String llvmRoot) {
+  final code = input.config.code;
+  final (
+    rustTriple,
+    ndkTriple,
+    sysrootTriple,
+  ) = switch (code.targetArchitecture) {
+    Architecture.arm => (
+      'armv7-linux-androideabi',
+      'armv7a-linux-androideabi',
+      'arm-linux-androideabi',
+    ),
+    Architecture.arm64 => (
+      'aarch64-linux-android',
+      'aarch64-linux-android',
+      'aarch64-linux-android',
+    ),
+    Architecture.x64 => (
+      'x86_64-linux-android',
+      'x86_64-linux-android',
+      'x86_64-linux-android',
+    ),
+    final other => throw StateError('No Android Rust target for $other'),
+  };
+  final sysroot = '$llvmRoot/sysroot'.replaceAll(r'\', '/');
+  return {
+    'BINDGEN_EXTRA_CLANG_ARGS_${rustTriple.replaceAll('-', '_')}':
+        '--sysroot=$sysroot -I$sysroot/usr/include/$sysrootTriple '
+        '--target=$ndkTriple${code.android.targetNdkApi}',
+  };
 }
 
 bool _isLibclang(FileSystemEntity entity) {
