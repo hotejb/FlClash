@@ -31,6 +31,16 @@ void main() {
     });
   });
 
+  test('iOS archives are built by setup.dart only', () {
+    expect(Target.all, isNot(contains(Target.iosArm64)));
+    expect(Target.iosArm64.platformDir, 'ios');
+    expect(Target.iosSimulatorArm64.platformDir, 'ios-simulator');
+    expect(Target.iosArm64.isCArchive, isTrue);
+    expect(Target.iosArm64.isLib, isFalse);
+    expect(Target.iosArm64.appleSdk, 'iphoneos');
+    expect(Target.iosSimulatorArm64.appleSdk, 'iphonesimulator');
+  });
+
   test('Android ABIs match the :core Gradle module', () {
     expect(Target.forPlatform('android').map((target) => target.abi), [
       'armeabi-v7a',

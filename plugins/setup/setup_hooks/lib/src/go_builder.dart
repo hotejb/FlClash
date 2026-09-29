@@ -14,6 +14,8 @@ import 'util.dart';
 
 final _log = Logger('go_builder');
 
+const iosMinVersion = '15.0';
+
 class GoBuilder {
   GoBuilder({
     required this.rootDir,
@@ -49,13 +51,25 @@ class GoBuilder {
     return cc;
   }
 
+  String _xcrun(List<String> arguments) {
+    final result = runCommand('xcrun', arguments);
+    return (result.stdout as String).trim();
+  }
+
   Future<BuildExecution> build(Target target) async {
+    if (target.isCArchive && !Platform.isMacOS) {
+      throw BuildException(
+        'Building the iOS Core needs macOS with Xcode (xcrun, ${target.appleSdk} SDK)',
+      );
+    }
     final outDir = target.isLib
         ? p.join(_outputPath, target.platformDir, target.abi!)
         : p.join(_outputPath, target.platformDir);
     ensureDir(outDir);
 
-    final fileName = target.isLib
+    final fileName = target.isCArchive
+        ? '${config.libName}.a'
+        : target.isLib
         ? '${config.libName}.so'
         : '${config.coreName}${target.executableExtension}';
     final outFile = p.join(outDir, fileName);
@@ -69,7 +83,11 @@ class GoBuilder {
         final env = _buildEnvironment(target);
         _log.info(
           'Building Go core: $target '
-          '${target.isLib ? "(CGO, c-shared)" : "(standalone)"}',
+          '${target.isCArchive
+              ? "(CGO, c-archive)"
+              : target.isLib
+              ? "(CGO, c-shared)"
+              : "(standalone)"}',
         );
 
         // A failed build must not destroy the previous artifacts.
@@ -86,7 +104,15 @@ class GoBuilder {
           );
 
           final outputs = <String>[outFile];
-          if (target.isLib) {
+          if (target.isCArchive) {
+            outputs.addAll(
+              _installIosOutput(
+                stagingDir: stagingDir.path,
+                outDir: outDir,
+                archive: fileName,
+              ),
+            );
+          } else if (target.isLib) {
             outputs.addAll(
               _installAndroidOutput(
                 abi: target.abi!,
@@ -113,7 +139,21 @@ class GoBuilder {
 
   Map<String, String> _buildEnvironment(Target target) {
     final env = <String, String>{'GOOS': target.goos, 'GOARCH': target.goarch};
-    if (target.isLib) {
+    if (target.isCArchive) {
+      // The Go linker takes the Mach-O platform from the cgo objects, so
+      // compiling them against the simulator SDK marks the archive as such.
+      final flags =
+          '-isysroot ${_xcrun(['--sdk', target.appleSdk, '--show-sdk-path'])} '
+          '-arch ${target.goarch} '
+          '${target.simulator ? '-mios-simulator-version-min' : '-miphoneos-version-min'}'
+          '=$iosMinVersion';
+      env
+        ..['CGO_ENABLED'] = '1'
+        ..['CC'] = _xcrun(['--sdk', target.appleSdk, '--find', 'clang'])
+        ..['CFLAGS'] = '-O3 -Werror'
+        ..['CGO_CFLAGS'] = '-O2 $flags'
+        ..['CGO_LDFLAGS'] = flags;
+    } else if (target.isLib) {
       env
         ..['CGO_ENABLED'] = '1'
         ..['CC'] = _resolveCc(target)
@@ -133,11 +173,19 @@ class GoBuilder {
             .join(' ')
       : config.goLdflags;
 
+  // A Packet Tunnel extension is killed above ~50 MB, so the iOS Core drops
+  // the features that only cost memory.
+  String _tags(Target target) =>
+      target.isCArchive ? '${config.tags},with_low_memory' : config.tags;
+
   List<String> _buildArguments(Target target, {String? outFile}) => [
     'build',
     '-ldflags=${_ldflags(target)}',
-    '-tags=${config.tags}',
-    if (target.isLib) '-buildmode=c-shared',
+    '-tags=${_tags(target)}',
+    if (target.isCArchive)
+      '-buildmode=c-archive'
+    else if (target.isLib)
+      '-buildmode=c-shared',
     if (outFile != null) ...['-o', outFile],
   ];
 
@@ -150,6 +198,7 @@ class GoBuilder {
         'goos': target.goos,
         'goarch': target.goarch,
         'abi': target.abi,
+        'simulator': target.simulator,
       })
       ..addValue('config', config.toFingerprintMap())
       ..addValue('environment', env)
@@ -182,7 +231,7 @@ class GoBuilder {
     final goEnv = jsonDecode((goEnvResult.stdout as String).trim());
     builder.addValue('go_env', goEnv);
 
-    final inputs = _resolveGoInputs(env);
+    final inputs = _resolveGoInputs(env, target);
     final goWork = (goEnv as Map<String, dynamic>)['GOWORK'];
     if (goWork is String && goWork.isNotEmpty && goWork != 'off') {
       inputs.add(goWork);
@@ -191,7 +240,7 @@ class GoBuilder {
     }
     inputs.addAll(harnessInputs);
 
-    if (target.isLib) {
+    if (target.usesCgo) {
       final compilerVersion = runCommand(env['CC']!, ['--version']);
       builder.addValue(
         'android_compiler',
@@ -204,12 +253,12 @@ class GoBuilder {
     return builder.finishWithInputs();
   }
 
-  Set<String> _resolveGoInputs(Map<String, String> environment) {
+  Set<String> _resolveGoInputs(Map<String, String> environment, Target target) {
     const template =
         r'''{{range .GoFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .CFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .CXXFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .MFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .HFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .FFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .SFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .SwigFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .SwigCXXFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .SysoFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .EmbedFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{with .Module}}{{if .GoMod}}{{.GoMod}}{{"\n"}}{{end}}{{end}}''';
     final result = runCommand(
       'go',
-      ['list', '-deps', '-tags=${config.tags}', '-f', template, '.'],
+      ['list', '-deps', '-tags=${_tags(target)}', '-f', template, '.'],
       workingDirectory: _corePath,
       environment: environment,
     );
@@ -237,6 +286,27 @@ class GoBuilder {
       if (File(filePath).existsSync()) inputs.add(filePath);
     }
     return inputs;
+  }
+
+  List<String> _installIosOutput({
+    required String stagingDir,
+    required String outDir,
+    required String archive,
+  }) {
+    // Go writes libclash.h next to the archive; the host also needs bride.h to
+    // install the callback function pointers.
+    final outputs = <String>[];
+    replaceFile(p.join(stagingDir, archive), p.join(outDir, archive));
+    outputs.add(p.join(outDir, archive));
+    for (final header in [
+      p.join(stagingDir, '${p.basenameWithoutExtension(archive)}.h'),
+      p.join(_corePath, 'bride.h'),
+    ]) {
+      final destination = p.join(outDir, p.basename(header));
+      copyFile(header, destination);
+      outputs.add(destination);
+    }
+    return outputs;
   }
 
   List<String> _installAndroidOutput({

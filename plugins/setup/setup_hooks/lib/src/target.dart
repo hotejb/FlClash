@@ -1,11 +1,17 @@
 import 'error.dart';
 
 class Target {
-  const Target({required this.goos, required this.goarch, this.abi});
+  const Target({
+    required this.goos,
+    required this.goarch,
+    this.abi,
+    this.simulator = false,
+  });
 
   final String goos;
   final String goarch;
   final String? abi;
+  final bool simulator;
 
   static const androidArm = Target(
     goos: 'android',
@@ -32,6 +38,15 @@ class Target {
   static const windowsAmd64 = Target(goos: 'windows', goarch: 'amd64');
   static const windowsArm64 = Target(goos: 'windows', goarch: 'arm64');
 
+  /// Static archives for the iOS Packet Tunnel extension. They are not part of
+  /// [all]: Flutter's build hook never builds them, only `setup.dart ios`.
+  static const iosArm64 = Target(goos: 'ios', goarch: 'arm64');
+  static const iosSimulatorArm64 = Target(
+    goos: 'ios',
+    goarch: 'arm64',
+    simulator: true,
+  );
+
   static const all = [
     androidArm,
     androidArm64,
@@ -56,11 +71,22 @@ class Target {
 
   bool get isLib => abi != null;
 
+  bool get isCArchive => goos == 'ios';
+
+  bool get usesCgo => isLib || isCArchive;
+
+  /// Apple SDK name for `xcrun --sdk`.
+  String get appleSdk => simulator ? 'iphonesimulator' : 'iphoneos';
+
   bool get hasHelper => goos == 'linux' || goos == 'windows';
 
   String get executableExtension => goos == 'windows' ? '.exe' : '';
 
-  String get platformDir => goos == 'darwin' ? 'macos' : goos;
+  String get platformDir => switch (goos) {
+    'darwin' => 'macos',
+    'ios' when simulator => 'ios-simulator',
+    _ => goos,
+  };
 
   String get ndkTriple => switch (abi) {
     'armeabi-v7a' => 'armv7a-linux-androideabi',
@@ -83,5 +109,7 @@ class Target {
   }
 
   @override
-  String toString() => '$goos/$goarch${abi != null ? ' ($abi)' : ''}';
+  String toString() =>
+      '$goos/$goarch${abi != null ? ' ($abi)' : ''}'
+      '${simulator ? ' (simulator)' : ''}';
 }

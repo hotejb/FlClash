@@ -374,8 +374,9 @@ func reconcileGeoUpdater() {
 }
 
 // mihomo writes the NTP time with settimeofday, which Android's app seccomp
-// policy answers by killing the process rather than with EPERM.
-var systemTimeWritable = runtime.GOOS != "android"
+// policy answers by killing the process rather than with EPERM. iOS apps are
+// sandboxed from it as well.
+var systemTimeWritable = runtime.GOOS != "android" && runtime.GOOS != "ios"
 
 func loadConfig(path string) (*config.Config, error) {
 	buf, err := os.ReadFile(path)
@@ -387,7 +388,7 @@ func loadConfig(path string) (*config.Config, error) {
 		return nil, err
 	}
 	if cfg.NTP.WriteToSystem && !systemTimeWritable {
-		log.Warnln("ntp write-to-system ignored: Android does not let apps set the system time")
+		log.Warnln("ntp write-to-system ignored: this platform does not let apps set the system time")
 		cfg.NTP.WriteToSystem = false
 	}
 	return cfg, nil

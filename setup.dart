@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:path/path.dart' as p;
+// ignore: depend_on_referenced_packages
+import 'package:setup_hooks/setup_hooks.dart';
 import 'package:yaml/yaml.dart';
 
 const _allTargets = <String, String>{
@@ -17,6 +19,10 @@ const _androidFlutterTarget = {
   'arm64': 'android-arm64',
   'amd64': 'android-x64',
 };
+
+/// The Go Core as a static library for the iOS Packet Tunnel extension. There
+/// is no app to package: the Xcode project in ios-poc links the archive.
+const _iosPlatform = 'ios';
 
 const _hostPlatform = {
   'linux': 'linux',
@@ -44,9 +50,11 @@ Future<void> main(List<String> args) async {
 
   final platform = rest.isNotEmpty ? rest.first : host;
 
-  if (platform != host && platform != 'android') {
+  final canBuildIos = platform == _iosPlatform && hostOs == 'macos';
+  if (platform != host && platform != 'android' && !canBuildIos) {
     stderr.writeln(
-      'Cannot build "$platform" on $hostOs. Allowed: $host, android',
+      'Cannot build "$platform" on $hostOs. Allowed: $host, android'
+      '${hostOs == 'macos' ? ', ios' : ''}',
     );
     _showHelp(parser);
     exit(1);
@@ -54,6 +62,9 @@ Future<void> main(List<String> args) async {
 
   final env = results['env'] as String;
   final rootDir = Directory.current.path;
+  if (platform == _iosPlatform) {
+    exit(await _buildIosCore(rootDir, simulator: results['simulator'] as bool));
+  }
   final skipped = packagesNotBuildingAssets(
     File(p.join(rootDir, 'pubspec.yaml')).readAsStringSync(),
   );
@@ -103,6 +114,13 @@ ArgParser createSetupArgParser() {
       help: 'Target architecture (Android only)',
     )
     ..addFlag(
+      'simulator',
+      negatable: false,
+      help:
+          'Build the iOS Core for the Apple Silicon simulator into '
+          'libclash/ios-simulator (iOS only)',
+    )
+    ..addFlag(
       'verbose',
       abbr: 'v',
       negatable: false,
@@ -146,12 +164,32 @@ String createPackageTargets(String platform, String? customTargets) {
 
 void _showHelp(ArgParser parser) {
   stderr.writeln('Usage: dart setup.dart [platform] [options]');
-  stderr.writeln('Platform: current host platform (default) or android');
+  stderr.writeln(
+    'Platform: current host platform (default), android, or ios (macOS only)',
+  );
   stderr.writeln();
   stderr.writeln('Default package targets:');
   _allTargets.forEach((p, t) => stderr.writeln('  $p: $t'));
   stderr.writeln();
   stderr.writeln(parser.usage);
+}
+
+Future<int> _buildIosCore(String rootDir, {required bool simulator}) async {
+  try {
+    final report = await buildPlatform(
+      BuildRequest(
+        rootDir: rootDir,
+        target: simulator ? Target.iosSimulatorArm64 : Target.iosArm64,
+      ),
+    );
+    for (final output in report.outputs) {
+      stdout.writeln(p.relative(output, from: rootDir));
+    }
+    return 0;
+  } on BuildException catch (error) {
+    stderr.writeln(error.message);
+    return 1;
+  }
 }
 
 Future<int> _package(
