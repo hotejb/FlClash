@@ -3,7 +3,7 @@ import XCTest
 
 /// Runtime smoke tests for the Go core <-> Swift bridge (PacketTunnel/ClashCore.swift
 /// over libclash.a) on the iOS Simulator. Everything short of a real tunnel:
-/// Go runtime init in an iOS process, the bride.h callbacks, JSON action
+/// Go runtime init in an iOS process, the bride.h callbacks, method
 /// round-trips, config parsing and the mixed listener.
 ///
 /// The Go core is process-global state, so the tests share one core and run
@@ -80,7 +80,9 @@ final class CoreSmokeTests: XCTestCase {
     }
 
     func test07_getProxiesRoundTrip() throws {
-        let proxies = try XCTUnwrap(core.invoke(method: "getProxies") as? [String: Any])
+        let data = try XCTUnwrap(core.invoke(method: "getProxies") as? [String: Any])
+        XCTAssertNotNil(data["all"] as? [String], "\(data.keys)")
+        let proxies = try XCTUnwrap(data["proxies"] as? [String: Any], "\(data.keys)")
         let direct = try XCTUnwrap(proxies["DIRECT"] as? [String: Any], "\(proxies.keys)")
         XCTAssertEqual(direct["name"] as? String, "DIRECT")
         XCTAssertEqual(direct["type"] as? String, "Direct")
@@ -89,26 +91,24 @@ final class CoreSmokeTests: XCTestCase {
     }
 
     func test08_getTrafficRoundTrip() throws {
-        // lib/core/interface.dart: data is onlyStatisticsProxy (bool), the
-        // reply a JSON-encoded string.
-        let raw = try XCTUnwrap(core.invoke(method: "getTraffic", data: false) as? String)
-        let traffic = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any], raw)
-        XCTAssertNotNil(traffic["up"], raw)
-        XCTAssertNotNil(traffic["down"], raw)
+        // lib/core/interface.dart: arguments is onlyStatisticsProxy (bool).
+        let traffic = try XCTUnwrap(core.invoke(method: "getTraffic", arguments: false) as? [String: Any])
+        XCTAssertNotNil(traffic["up"], "\(traffic)")
+        XCTAssertNotNil(traffic["down"], "\(traffic)")
     }
 
     func test09_getConnectionsRoundTrip() throws {
-        let raw = try XCTUnwrap(core.invoke(method: "getConnections") as? String)
-        let snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any], raw)
-        XCTAssertNotNil(snapshot["downloadTotal"], raw)
-        XCTAssertNotNil(snapshot["uploadTotal"], raw)
+        let snapshot = try XCTUnwrap(core.invoke(method: "getConnections") as? [String: Any])
+        XCTAssertNotNil(snapshot["downloadTotal"], "\(snapshot)")
+        XCTAssertNotNil(snapshot["uploadTotal"], "\(snapshot)")
     }
 
-    func test10_getMemory() throws {
-        // Goes through purego's dlopen(libSystem) + proc_pidinfo on darwin/ios.
-        let raw = try XCTUnwrap(core.invoke(method: "getMemory") as? String)
-        let rss = try XCTUnwrap(UInt64(raw), raw)
+    func test10_getMemoryStats() throws {
+        // rss goes through purego's dlopen(libSystem) + proc_pidinfo on darwin/ios.
+        let stats = try XCTUnwrap(core.invoke(method: "getMemoryStats") as? [String: Any])
+        let rss = try XCTUnwrap((stats["rss"] as? NSNumber)?.uint64Value, "\(stats)")
         XCTAssertGreaterThan(rss, 0)
+        XCTAssertNotNil(stats["heapInuse"], "\(stats)")
     }
 
     func test11_forceGC() throws {
@@ -116,11 +116,12 @@ final class CoreSmokeTests: XCTestCase {
         core.gc() // exported forceGC(), no callback
     }
 
-    func test12_invalidActionReleasesCallback() throws {
+    func test12_invalidCallReleasesCallback() throws {
         let baseline = ClashCore.liveCallbacks
         let reply = try core.invokeRaw("{not json")
-        XCTAssertFalse(reply.isEmpty)
-        XCTAssertNil(try? JSONSerialization.jsonObject(with: Data(reply.utf8)), reply)
+        let response = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any], reply)
+        let error = try XCTUnwrap(response["error"] as? [String: Any], reply)
+        XCTAssertEqual(error["code"] as? String, "invalid_method_call", reply)
         waitForLiveCallbacks(baseline)
     }
 
@@ -129,8 +130,8 @@ final class CoreSmokeTests: XCTestCase {
         for i in 0..<200 {
             switch i % 4 {
             case 0: XCTAssertEqual(try core.invoke(method: "getIsInit") as? Bool, true)
-            case 1: XCTAssertNotNil(try core.invoke(method: "getProxies") as? [String: Any])
-            case 2: XCTAssertNotNil(try core.invoke(method: "getTraffic", data: true) as? String)
+            case 1: XCTAssertNotNil((try core.invoke(method: "getProxies") as? [String: Any])?["proxies"])
+            case 2: XCTAssertNotNil(try core.invoke(method: "getTraffic", arguments: true) as? [String: Any])
             default: XCTAssertEqual(try core.invoke(method: "forceGc") as? Bool, true)
             }
         }

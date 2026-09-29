@@ -32,7 +32,7 @@ It publishes its memory footprint to the app once a second through the App Group
 From the repository root:
 
 ```sh
-# 1. Resolve setup.dart's dependencies (args, crypto, path from the root pubspec).
+# 1. Resolve setup.dart's dependencies (the root pubspec, including setup_hooks).
 flutter pub get
 
 # 2. Build the Go core for iOS (arm64, GOOS=ios, CGO, -buildmode=c-archive,
@@ -98,7 +98,7 @@ runtime only. It isn't a hard cap on the process.
 `CoreSmokeTests` is a hostless unit-test bundle that drives the Go core
 through `PacketTunnel/ClashCore.swift` on the iOS Simulator: Go runtime start
 in an iOS process, the `bride.h` callbacks (result, `release_object`,
-`free_string`), JSON action round trips, config parsing, the mixed listener
+`free_string`), JSON method round trips, config parsing, the mixed listener
 (including an HTTP request proxied to a loopback server), `forceGc`,
 callback release after 200+ invokes, `stopListener` and `shutdown`. It needs
 no signing, entitlements or network access. CI runs it on every push
@@ -135,7 +135,7 @@ tested on a device.
 | `Shared/Memory.swift` | `task_vm_info.phys_footprint` |
 | `App/` | SwiftUI UI: profile install/start/stop, config editor/import, memory display |
 | `PacketTunnel/PacketTunnelProvider.swift` | Network settings, core start/stop, memory reporter |
-| `PacketTunnel/ClashCore.swift` | Swift side of `core/bride.h` callbacks + JSON Action calls |
+| `PacketTunnel/ClashCore.swift` | Swift side of `core/bride.h` callbacks + `invokeMethod` JSON calls |
 | `PacketTunnel/TunnelFD.swift` | Finds the utun fd (scan fds for `UTUN_OPT_IFNAME`, KVC fallback) |
 | `PacketTunnel/PacketTunnel-Bridging-Header.h` | Imports `libclash.h` and `bride.h` |
 | `CoreSmokeTests/` | Simulator XCTest bundle for the Go core bridge (see above) |
@@ -153,7 +153,7 @@ tested on a device.
   `SetMemoryLimit`. The tests also cover the `bride.h` callbacks and their
   retain/release, `initClash`, `setupConfig` with valid and invalid configs,
   the mixed listener proxying HTTP over DIRECT, the `getProxies`,
-  `getTraffic`, `getConnections` and `getMemory` actions (the last goes
+  `getTraffic`, `getConnections` and `getMemoryStats` methods (the last goes
   through purego `dlopen`), `forceGc`, the exported
   `getTraffic`/`getTotalTraffic` C strings, `stopListener` and `shutdown`.
 

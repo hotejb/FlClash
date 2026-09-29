@@ -6,11 +6,12 @@ name: ios-poc
 on:
   push:
     branches:
-      - claude/slack-session-wz0xh2
+      - ios
     paths:
       - 'core/**'
       - 'ios-poc/**'
       - 'setup.dart'
+      - 'plugins/setup/**'
       - '.github/workflows/ios-poc.yml'
   workflow_dispatch:
 
@@ -34,26 +35,28 @@ jobs:
           cache-dependency-path: |
             core/go.sum
 
-      # setup.dart only imports args, crypto and path. Resolve just those
-      # (versions from pubspec.lock) instead of the whole Flutter app, whose
-      # `flutter pub get` also pulls unrelated git dependencies. Dart 3.9.2 is
-      # the SDK bundled with Flutter 3.35.7 used by build.yaml.
+      # setup.dart imports args, path, yaml and the setup_hooks package. Resolve
+      # just those (versions from pubspec.lock where the root pins them)
+      # instead of the whole Flutter app, whose `flutter pub get` also pulls
+      # unrelated git dependencies. setup_hooks needs Dart 3.10 or newer.
       - name: Setup Dart
         uses: dart-lang/setup-dart@v1
         with:
-          sdk: 3.9.2
+          sdk: stable
 
       - name: Get setup.dart dependencies
         run: |
           mkdir -p "$RUNNER_TEMP/setup_deps"
-          cat > "$RUNNER_TEMP/setup_deps/pubspec.yaml" <<'EOF'
+          cat > "$RUNNER_TEMP/setup_deps/pubspec.yaml" <<EOF
           name: setup_deps
           environment:
-            sdk: '>=3.8.0 <4.0.0'
+            sdk: '>=3.10.0 <4.0.0'
           dependencies:
-            args: 2.7.0
-            crypto: 3.0.7
-            path: 1.9.1
+            args: any
+            path: any
+            yaml: any
+            setup_hooks:
+              path: $GITHUB_WORKSPACE/plugins/setup/setup_hooks
           EOF
           (cd "$RUNNER_TEMP/setup_deps" && dart pub get)
 
@@ -118,19 +121,21 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@v1
         with:
-          sdk: 3.9.2
+          sdk: stable
 
       - name: Get setup.dart dependencies
         run: |
           mkdir -p "$RUNNER_TEMP/setup_deps"
-          cat > "$RUNNER_TEMP/setup_deps/pubspec.yaml" <<'EOF'
+          cat > "$RUNNER_TEMP/setup_deps/pubspec.yaml" <<EOF
           name: setup_deps
           environment:
-            sdk: '>=3.8.0 <4.0.0'
+            sdk: '>=3.10.0 <4.0.0'
           dependencies:
-            args: 2.7.0
-            crypto: 3.0.7
-            path: 1.9.1
+            args: any
+            path: any
+            yaml: any
+            setup_hooks:
+              path: $GITHUB_WORKSPACE/plugins/setup/setup_hooks
           EOF
           (cd "$RUNNER_TEMP/setup_deps" && dart pub get)
 

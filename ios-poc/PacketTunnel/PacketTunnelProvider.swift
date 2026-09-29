@@ -73,7 +73,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let stack = Shared.defaults.string(forKey: Shared.Key.stack) ?? Shared.defaultStack
         logger.info("startTUN fd=\(fd) (\(TunnelFD.interfaceName(fd: fd) ?? "?", privacy: .public)) stack=\(stack, privacy: .public)")
         setStage("starting TUN (fd \(fd), \(stack))")
-        core.startTun(fd: fd, stack: stack, address: Self.ipv4Prefix, dns: Self.dnsServer)
+        guard core.startTun(fd: fd, stack: stack, address: Self.ipv4Prefix, dns: Self.dnsServer) else {
+            throw ClashCoreError(message: "the core refused to start the TUN; see the core error log")
+        }
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
