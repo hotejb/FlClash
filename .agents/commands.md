@@ -218,11 +218,15 @@ pushed.
 ```bash
 tool/sync_upstream.sh              # merge upstream, rebase the Core layer, quick gate
 tool/sync_upstream.sh --core-only  # or --app-only
+tool/sync_upstream.sh --push       # after the gate, push the Core and the current branch
 tool/verify_sync.sh --full         # adds flutter test, the Android package and the iOS CoreSmokeTests
 ```
 
-- The rebased Core commit lives on the local `alpha-flclash` branch of `core/Clash.Meta`; push it to the fork
-  (`.gitmodules` points there) before pushing the main repo, or a fresh clone cannot fetch the pointer.
+- The rebased Core commit lives on the local `alpha-flclash` branch of `core/Clash.Meta` and must reach the fork
+  (`.gitmodules` points there) before the main repo, or a fresh clone cannot fetch the pointer. `--push` does both in
+  that order. Each rebase rewrites `alpha-flclash`, so it is force-pushed with a lease, and every Core commit the main
+  repo points at, plus the tip it replaces, also gets an immutable `flclash-core/<sha>` tag that keeps older checkouts
+  fetchable. `FORK_REMOTE` names the main repo's push remote (default `hotejb`).
 - The gate cannot see runtime behaviour, such as an upstream change of the default TUN stack. Test on a device now and then.
 - Untracked checkouts under `vendor/` or `plugins/` make `flutter test` fail through `test/lint/design_package_test.dart`.
 
