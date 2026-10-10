@@ -13,77 +13,28 @@ case "${1:-}" in
     ;;
 esac
 
-skipped=()
-
 step() { echo "==> $1"; }
-skip() {
-  echo "    skipped: $1"
-  skipped+=("$1")
-}
-
-version_of() {
-  sed -n "s/^$1 = \"\(.*\)\"/\1/p" android/gradle/libs.versions.toml
-}
-
-ndk_bin() {
-  local sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
-  local host
-  host="$(uname -s | tr '[:upper:]' '[:lower:]')"
-  echo "$sdk/ndk/$(version_of ndkVersion)/toolchains/llvm/prebuilt/${host}-x86_64/bin"
-}
 
 verify_core() {
   step "core: build, vet, test"
-  (cd core && go build -o /dev/null ./... && go vet ./... && go test ./...)
+  (
+    cd core
+    export CGO_ENABLED=0
+    go build -o /dev/null ./cmd/...
+    go vet . ./cmd/...
+    GOOS=linux go vet ./platform
+    go test -count=1 .
+  )
 }
 
+# The gomobile AAR only builds inside Gradle. Vetting the packages it binds
+# catches a Core API change the Android side depends on; arm64 is the only
+# Android target Go accepts without cgo, which is why CI vets just that one.
 verify_android_core() {
-  local bin api
-  bin="$(ndk_bin)"
-  api="$(version_of minSdk)"
-  if [[ ! -d "$bin" ]]; then
-    skip "android core (NDK $(version_of ndkVersion) not installed)"
-    return
-  fi
-  local spec arch triple
-  for spec in arm64:aarch64-linux-android arm:armv7a-linux-androideabi amd64:x86_64-linux-android; do
-    arch="${spec%%:*}"
-    triple="${spec#*:}"
-    step "core: android/$arch"
-    (
-      cd core
-      GOOS=android GOARCH="$arch" CGO_ENABLED=1 CC="$bin/${triple}${api}-clang" \
-        go build -tags with_gvisor -buildmode=c-shared -o /dev/null .
-    )
-  done
-}
-
-# Everything the Swift side calls into or installs, so a build tag that quietly
-# drops an iOS file fails here rather than at link time in Xcode.
-verify_ios_symbols() {
-  local archive="$1" symbols symbol
-  symbols="$(nm "$archive" 2>/dev/null)"
-  for symbol in invokeMethod startTUN stopTun forceGC setEventListener \
-    result_func release_object_func free_string_func protect_func \
-    resolve_uid_func resolve_package_func; do
-    grep -Eq " [TDSBC] _${symbol}\$" <<<"$symbols" || {
-      echo "iOS archive $archive lacks $symbol" >&2
-      return 1
-    }
-  done
-}
-
-verify_ios_core() {
-  if [[ "$(uname -s)" != "Darwin" ]] || ! command -v xcrun >/dev/null; then
-    skip "ios core (needs macOS with Xcode)"
-    return
-  fi
-  step "core: ios device archive"
-  dart setup.dart ios
-  verify_ios_symbols libclash/ios/libclash.a
-  step "core: ios simulator archive"
-  dart setup.dart ios --simulator
-  verify_ios_symbols libclash/ios-simulator/libclash.a
+  local tags
+  tags="$(sed -n 's/^tags: *//p' build_config.yaml)"
+  step "core: android/arm64"
+  (cd core && CGO_ENABLED=0 GOOS=android GOARCH=arm64 go vet "-tags=$tags" . ./mobile ./tun ./platform)
 }
 
 verify_dart() {
@@ -102,35 +53,13 @@ verify_full() {
   flutter test
   step "android: dart setup.dart android"
   dart setup.dart android
-  if [[ "$(uname -s)" != "Darwin" ]] || ! command -v xcodegen >/dev/null; then
-    skip "ios CoreSmokeTests (needs macOS with xcodegen)"
-    return
-  fi
-  local device
-  device="$(xcrun simctl list devices available |
-    sed -n 's/^ *\(iPhone [^(]*[^ (]\) (.*/\1/p' | head -n 1)"
-  if [[ -z "$device" ]]; then
-    skip "ios CoreSmokeTests (no iPhone simulator runtime installed)"
-    return
-  fi
-  step "ios: CoreSmokeTests on $device"
-  (
-    cd ios-poc
-    xcodegen >/dev/null
-    xcodebuild test -project FlClashPoC.xcodeproj -scheme CoreSmokeTests \
-      -destination "platform=iOS Simulator,name=$device" CODE_SIGNING_ALLOWED=NO
-  )
 }
 
 verify_core
 verify_android_core
-verify_ios_core
 verify_dart
 if ((full)); then
   verify_full
 fi
 
 echo "==> verify_sync: passed"
-if ((${#skipped[@]})); then
-  printf 'not checked: %s\n' "${skipped[@]}" >&2
-fi

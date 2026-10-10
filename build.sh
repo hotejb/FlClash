@@ -28,7 +28,6 @@ AUTO_DEPLOY=true
 TARGET_PLATFORM="android"
 TARGET_ARCH=""
 ENV_MODE="stable"
-SIMULATOR=false
 VERBOSE=false
 DEVICE="${ANDROID_SERIAL:-}"
 ADB=""
@@ -54,13 +53,11 @@ show_help() {
 用法: ./build.sh [选项]
 
 选项:
-  -p, --platform <android|macos|ios>   目标平台 (默认: android)
-                                       ios 只构建 Packet Tunnel 链接的内核静态库
+  -p, --platform <android|macos>       目标平台 (默认: android)
   -a, --arch <arm64|arm|amd64>         Android 架构；x86_64 等同 amd64
                                        (默认: 已连接设备的架构，否则 arm64)
   -e, --env <stable|pre|dev>           应用构建环境 (默认: stable)
   -s, --device <serial>                安装到指定设备 (默认: \$ANDROID_SERIAL 或第一台)
-  --simulator                          ios 时构建 Apple Silicon 模拟器版内核
   -f, --force                          清理 Hook 指纹缓存与 build/，强制全量重编
   --sync                               构建前先与官方同步（验证通过才保留）
   --sync-app-only / --sync-core-only   只同步官方 App / 只同步 Mihomo 内核
@@ -82,7 +79,6 @@ parse_args() {
             -a|--arch) require_value "$@"; TARGET_ARCH="$2"; shift 2 ;;
             -e|--env) require_value "$@"; ENV_MODE="$2"; shift 2 ;;
             -s|--device) require_value "$@"; DEVICE="$2"; shift 2 ;;
-            --simulator) SIMULATOR=true; shift ;;
             -f|--force) FORCE_BUILD=true; shift ;;
             --sync) SYNC=true; shift ;;
             --sync-app-only) SYNC=true; SYNC_ARGS=(--app-only); shift ;;
@@ -96,8 +92,8 @@ parse_args() {
     done
 
     case "$TARGET_PLATFORM" in
-        android|macos|ios) ;;
-        *) die "不支持的平台: $TARGET_PLATFORM（可选 android|macos|ios）" ;;
+        android|macos) ;;
+        *) die "不支持的平台: $TARGET_PLATFORM（可选 android|macos）" ;;
     esac
     case "$ENV_MODE" in
         stable|pre|dev) ;;
@@ -115,9 +111,6 @@ parse_args() {
     if [[ "$PUSH" == "true" ]]; then
         [[ "$SYNC" == "true" ]] || die "--push 需要与 --sync 一起使用"
         SYNC_ARGS+=(--push)
-    fi
-    if [[ "$SIMULATOR" == "true" && "$TARGET_PLATFORM" != "ios" ]]; then
-        die "--simulator 只能与 -p ios 一起使用"
     fi
 }
 
@@ -216,9 +209,6 @@ build_package() {
     if [[ "$TARGET_PLATFORM" == "android" ]]; then
         args+=(--arch "$TARGET_ARCH")
     fi
-    if [[ "$SIMULATOR" == "true" ]]; then
-        args+=(--simulator)
-    fi
     if [[ "$VERBOSE" == "true" ]]; then
         args+=(--verbose)
     fi
@@ -300,10 +290,8 @@ main() {
     local total_duration=$(( $(date +%s) - SCRIPT_START_TIME ))
     printf "\n"
     log_success "全部任务顺利完成！总耗时: $(format_duration "$total_duration")"
-    if [[ "$TARGET_PLATFORM" != "ios" ]]; then
-        printf "\n本次产物:\n"
-        find dist -type f -newer "$BUILD_MARKER" -exec ls -lh {} + 2>/dev/null || true
-    fi
+    printf "\n本次产物:\n"
+    find dist -type f -newer "$BUILD_MARKER" -exec ls -lh {} + 2>/dev/null || true
     printf "\n"
 }
 
