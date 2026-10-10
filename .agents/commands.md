@@ -210,8 +210,8 @@ What those suites own:
 
 `tool/sync_upstream.sh` merges the official `origin/dev`, then replays the FlClash layer of the mihomo Core (the commits
 between the submodule pointer and its merge base with `upstream/Alpha`) onto the latest Alpha, bumps `core/go.mod`, and
-commits both. `tool/verify_sync.sh` is the gate it runs: Core build, vet and tests, the Android ABIs, the iOS device and
-simulator archives (including the symbols `ios-poc` links against), `flutter analyze` on tracked paths and the
+commits both. `tool/verify_sync.sh` is the gate it runs: Core build, vet and tests, an arm64 Android vet of the gomobile
+packages, `flutter analyze` on tracked paths and the
 `setup_hooks` tests. A failing gate, a merge conflict or a Core conflict restores the branch and the Core, and nothing is
 pushed.
 
@@ -219,7 +219,7 @@ pushed.
 tool/sync_upstream.sh              # merge upstream, rebase the Core layer, quick gate
 tool/sync_upstream.sh --core-only  # or --app-only
 tool/sync_upstream.sh --push       # after the gate, push the Core and the current branch
-tool/verify_sync.sh --full         # adds flutter test, the Android package and the iOS CoreSmokeTests
+tool/verify_sync.sh --full         # adds flutter test and the Android package
 ```
 
 - The rebased Core commit lives on the local `alpha-flclash` branch of `core/Clash.Meta` and must reach the fork
