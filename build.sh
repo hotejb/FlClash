@@ -4,7 +4,7 @@
 #
 # 1. 打包：调用官方 setup.dart；Go 内核与 Rust 库由 Native Asset Hook 按需重编
 # 2. 同步（--sync，可选）：tool/sync_upstream.sh 合并官方 dev 并把内核适配层套到
-#    最新 Alpha，验证不过自动回滚，不推送
+#    最新 Alpha，验证不过自动回滚；加 --push 才推送
 # 3. 部署：检测到 USB 连接的 Android 设备时自动安装本次构建出的 APK
 # ==============================================================================
 
@@ -23,6 +23,7 @@ cd "$SCRIPT_DIR"
 FORCE_BUILD=false
 SYNC=false
 SYNC_ARGS=()
+PUSH=false
 AUTO_DEPLOY=true
 TARGET_PLATFORM="android"
 TARGET_ARCH=""
@@ -61,8 +62,9 @@ show_help() {
   -s, --device <serial>                安装到指定设备 (默认: \$ANDROID_SERIAL 或第一台)
   --simulator                          ios 时构建 Apple Silicon 模拟器版内核
   -f, --force                          清理 Hook 指纹缓存与 build/，强制全量重编
-  --sync                               构建前先与官方同步（验证通过才保留，不推送）
+  --sync                               构建前先与官方同步（验证通过才保留）
   --sync-app-only / --sync-core-only   只同步官方 App / 只同步 Mihomo 内核
+  --push                               与 --sync 同用：验证通过后推送内核和当前分支
   --no-deploy                          构建完成后不自动安装到设备
   -v, --verbose                        输出 Flutter 详细构建日志
   -h, --help                           显示帮助信息
@@ -85,6 +87,7 @@ parse_args() {
             --sync) SYNC=true; shift ;;
             --sync-app-only) SYNC=true; SYNC_ARGS=(--app-only); shift ;;
             --sync-core-only) SYNC=true; SYNC_ARGS=(--core-only); shift ;;
+            --push) PUSH=true; shift ;;
             --no-deploy) AUTO_DEPLOY=false; shift ;;
             -v|--verbose) VERBOSE=true; shift ;;
             -h|--help) show_help; exit 0 ;;
@@ -108,6 +111,10 @@ parse_args() {
     if [[ "$TARGET_PLATFORM" != "android" ]]; then
         [[ -z "$TARGET_ARCH" ]] || log_warning "--arch 只对 Android 生效，已忽略"
         AUTO_DEPLOY=false
+    fi
+    if [[ "$PUSH" == "true" ]]; then
+        [[ "$SYNC" == "true" ]] || die "--push 需要与 --sync 一起使用"
+        SYNC_ARGS+=(--push)
     fi
     if [[ "$SIMULATOR" == "true" && "$TARGET_PLATFORM" != "ios" ]]; then
         die "--simulator 只能与 -p ios 一起使用"
@@ -163,7 +170,7 @@ check_and_prepare_env() {
 }
 
 sync_upstream() {
-    log_info "同步官方 FlClash 与 Mihomo 内核（失败会自动回滚，不会推送）..."
+    log_info "同步官方 FlClash 与 Mihomo 内核（失败会自动回滚）..."
     if ! ./tool/sync_upstream.sh "${SYNC_ARGS[@]+"${SYNC_ARGS[@]}"}"; then
         die "同步失败，代码与内核已恢复到同步前的状态。"
     fi

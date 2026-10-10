@@ -12,17 +12,21 @@ UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-dev}"
 MIHOMO_URL="https://github.com/MetaCubeX/mihomo.git"
 CORE_PATH="core/Clash.Meta"
 CORE_BRANCH="alpha-flclash"
+CORE_TAG_PREFIX="flclash-core"
+FORK_REMOTE="${FORK_REMOTE:-hotejb}"
 
 do_app=1
 do_core=1
+do_push=0
 verify_args=()
 for arg in "$@"; do
   case "$arg" in
     --app-only) do_core=0 ;;
     --core-only) do_app=0 ;;
     --full) verify_args+=(--full) ;;
+    --push) do_push=1 ;;
     -h | --help)
-      echo "usage: tool/sync_upstream.sh [--app-only | --core-only] [--full]"
+      echo "usage: tool/sync_upstream.sh [--app-only | --core-only] [--full] [--push]"
       exit 0
       ;;
     *)
@@ -138,6 +142,39 @@ Changelog: skip
 EOF
 }
 
+push_core_tag() {
+  local commit="$1" tag
+  tag="$CORE_TAG_PREFIX/$(core rev-parse --short=12 "$commit")"
+  if [[ -z "$(core ls-remote --tags origin "refs/tags/$tag")" ]]; then
+    core push --quiet origin "$commit:refs/tags/$tag"
+    echo "    tagged ${commit:0:8} as $tag"
+  fi
+}
+
+# Every rebase onto a new Alpha rewrites the layer branch, so each Core commit
+# the main repo has ever pointed at also gets an immutable tag on the fork; a
+# checkout of any older commit can still fetch its Core after the force push.
+push_all() {
+  local pointer remote_layer branch
+  pointer="$(git rev-parse "HEAD:$CORE_PATH")"
+  branch="$(git branch --show-current)"
+
+  echo "==> pushing the Core to $(core remote get-url origin)"
+  push_core_tag "$pointer"
+  remote_layer="$(core ls-remote --heads origin "$CORE_BRANCH" | cut -f1)"
+  if [[ -n "$remote_layer" ]]; then
+    core cat-file -e "$remote_layer^{commit}" 2>/dev/null || core fetch --quiet origin "$CORE_BRANCH"
+    push_core_tag "$remote_layer"
+  fi
+  if [[ "$remote_layer" != "$pointer" ]]; then
+    core push --quiet --force-with-lease="$CORE_BRANCH:$remote_layer" origin "$pointer:refs/heads/$CORE_BRANCH"
+    echo "    $CORE_BRANCH -> ${pointer:0:8}"
+  fi
+
+  echo "==> pushing $branch to $FORK_REMOTE"
+  git push "$FORK_REMOTE" "$branch"
+}
+
 ((do_app)) && sync_app
 ((do_core)) && sync_core
 
@@ -147,8 +184,8 @@ ok=1
 
 echo
 echo "sync done: $(git rev-parse --short "$start_head")..$(git rev-parse --short HEAD)"
-if [[ -z "$(core branch -r --contains "$(core rev-parse HEAD)" 2>/dev/null)" ]]; then
-  echo "The Core commit $(core rev-parse --short HEAD) is on no remote yet. Push it before the main repo:"
-  echo "  git -C $CORE_PATH push --force-with-lease origin $CORE_BRANCH"
+if ((do_push)); then
+  push_all
+else
+  echo "Push the Core and $(git branch --show-current) with: tool/sync_upstream.sh --push"
 fi
-echo "Then push the main repo yourself, e.g. git push hotejb $(git branch --show-current)"
