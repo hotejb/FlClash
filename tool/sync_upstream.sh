@@ -162,10 +162,10 @@ EOF
 }
 
 push_core_tag() {
-  local commit="$1" tag
+  local url="$1" commit="$2" tag
   tag="$CORE_TAG_PREFIX/$(core rev-parse --short=12 "$commit")"
-  if [[ -z "$(core ls-remote --tags origin "refs/tags/$tag")" ]]; then
-    core push --quiet origin "$commit:refs/tags/$tag"
+  if [[ -z "$(core ls-remote --tags "$url" "refs/tags/$tag")" ]]; then
+    core push --quiet "$url" "$commit:refs/tags/$tag"
     echo "    tagged ${commit:0:8} as $tag"
   fi
 }
@@ -173,20 +173,23 @@ push_core_tag() {
 # Every rebase onto a new Alpha rewrites the layer branch, so each Core commit
 # the main repo has ever pointed at also gets an immutable tag on the fork; a
 # checkout of any older commit can still fetch its Core after the force push.
+# The submodule's own origin follows whatever .gitmodules was last synced from,
+# which an official checkout points at chen08209, so push to the tracked URL.
 push_all() {
-  local pointer remote_layer branch
+  local pointer remote_layer branch url
   pointer="$(git rev-parse "HEAD:$CORE_PATH")"
   branch="$(git branch --show-current)"
+  url="$(git config -f .gitmodules --get "submodule.$CORE_PATH.url")"
 
-  echo "==> pushing the Core to $(core remote get-url origin)"
-  push_core_tag "$pointer"
-  remote_layer="$(core ls-remote --heads origin "$CORE_BRANCH" | cut -f1)"
+  echo "==> pushing the Core to $url"
+  push_core_tag "$url" "$pointer"
+  remote_layer="$(core ls-remote --heads "$url" "$CORE_BRANCH" | cut -f1)"
   if [[ -n "$remote_layer" ]]; then
-    core cat-file -e "$remote_layer^{commit}" 2>/dev/null || core fetch --quiet origin "$CORE_BRANCH"
-    push_core_tag "$remote_layer"
+    core cat-file -e "$remote_layer^{commit}" 2>/dev/null || core fetch --quiet "$url" "$CORE_BRANCH"
+    push_core_tag "$url" "$remote_layer"
   fi
   if [[ "$remote_layer" != "$pointer" ]]; then
-    core push --quiet --force-with-lease="$CORE_BRANCH:$remote_layer" origin "$pointer:refs/heads/$CORE_BRANCH"
+    core push --quiet --force-with-lease="refs/heads/$CORE_BRANCH:$remote_layer" "$url" "$pointer:refs/heads/$CORE_BRANCH"
     echo "    $CORE_BRANCH -> ${pointer:0:8}"
   fi
 
