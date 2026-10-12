@@ -208,15 +208,21 @@ What those suites own:
 
 ## Syncing With Upstream
 
-`tool/sync_upstream.sh` merges the official `origin/dev`, then replays the FlClash layer of the mihomo Core (the commits
-between the submodule pointer and its merge base with `upstream/Alpha`) onto the latest Alpha, bumps `core/go.mod`, and
-commits both. `tool/verify_sync.sh` is the gate it runs: Core build, vet and tests, an arm64 Android vet of the gomobile
-packages, `flutter analyze` on tracked paths and the
-`setup_hooks` tests. A failing gate, a merge conflict or a Core conflict restores the branch and the Core, and nothing is
-pushed.
+`tool/sync_upstream.sh` replays the fork's own commits onto the official `origin/dev`, then replays the FlClash layer of
+the mihomo Core (the commits between the submodule pointer and its merge base with `upstream/Alpha`) onto the latest
+Alpha, bumps `core/go.mod`, and commits both. `tool/verify_sync.sh` is the gate it runs: Core build, vet and tests, an
+arm64 Android vet of the gomobile packages, `flutter analyze` on tracked paths and the `setup_hooks` tests. A failing
+gate, a replay conflict or a Core conflict restores the branch and the Core, and nothing is pushed.
+
+The official `dev` is rewritten from time to time, so a merge would set its old and new histories against each other.
+The fork's commits are the ones after the upstream commit the last sync built on, which a successful sync records in
+the local ref `refs/sync/upstream-base`; the previous Core commit is dropped and rebuilt. A fresh checkout has no such
+ref and falls back to the merge base, so set it by hand when that is wrong:
+`git update-ref refs/sync/upstream-base <upstream commit the branch starts from>`. Because the branch is rebuilt, the
+fork's branch has to be force-pushed after a sync that replayed onto a rewritten upstream.
 
 ```bash
-tool/sync_upstream.sh              # merge upstream, rebase the Core layer, quick gate
+tool/sync_upstream.sh              # replay onto upstream, rebase the Core layer, quick gate
 tool/sync_upstream.sh --core-only  # or --app-only
 tool/sync_upstream.sh --push       # after the gate, push the Core and the current branch
 tool/verify_sync.sh --full         # adds flutter test and the Android package
