@@ -225,6 +225,7 @@ fork's branch has to be force-pushed after a sync that replayed onto a rewritten
 tool/sync_upstream.sh              # replay onto upstream, rebase the Core layer, quick gate
 tool/sync_upstream.sh --core-only  # or --app-only
 tool/sync_upstream.sh --push       # after the gate, push the Core and the current branch
+tool/sync_upstream.sh --push-main  # same, and move the fork's main to that commit too
 tool/verify_sync.sh --full         # adds flutter test and the Android package
 ```
 
