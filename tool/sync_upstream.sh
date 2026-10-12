@@ -2,7 +2,8 @@
 # Replays the fork's commits onto the official FlClash dev branch, then replays
 # the FlClash layer of the mihomo Core on top of MetaCubeX's latest Alpha. The
 # result is kept only when tool/verify_sync.sh passes; otherwise the branch and
-# the Core go back to where they started. Only --push pushes.
+# the Core go back to where they started. Only --push pushes; --push-main also
+# moves the fork's main to the same commit.
 set -euo pipefail
 
 # Bash reads a script as it runs, and the replay below rewrites this file.
@@ -29,6 +30,7 @@ app_upstream=""
 do_app=1
 do_core=1
 do_push=0
+push_main=0
 verify_args=()
 for arg in "$@"; do
   case "$arg" in
@@ -36,8 +38,12 @@ for arg in "$@"; do
     --core-only) do_app=0 ;;
     --full) verify_args+=(--full) ;;
     --push) do_push=1 ;;
+    --push-main)
+      do_push=1
+      push_main=1
+      ;;
     -h | --help)
-      echo "usage: tool/sync_upstream.sh [--app-only | --core-only] [--full] [--push]"
+      echo "usage: tool/sync_upstream.sh [--app-only | --core-only] [--full] [--push | --push-main]"
       exit 0
       ;;
     *)
@@ -193,10 +199,15 @@ push_all() {
     echo "    $CORE_BRANCH -> ${pointer:0:8}"
   fi
 
-  echo "==> pushing $branch to $FORK_REMOTE"
-  local remote_tip
-  remote_tip="$(git ls-remote --heads "$FORK_REMOTE" "$branch" | cut -f1)"
-  git push --force-with-lease="$branch:$remote_tip" "$FORK_REMOTE" "$branch"
+  local targets=("$branch") target remote_tip
+  if ((push_main)) && [[ "$branch" != "main" ]]; then
+    targets+=(main)
+  fi
+  for target in "${targets[@]}"; do
+    echo "==> pushing $branch to $FORK_REMOTE/$target"
+    remote_tip="$(git ls-remote --heads "$FORK_REMOTE" "$target" | cut -f1)"
+    git push --force-with-lease="refs/heads/$target:$remote_tip" "$FORK_REMOTE" "HEAD:refs/heads/$target"
+  done
 }
 
 ((do_app)) && sync_app
