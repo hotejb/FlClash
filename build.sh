@@ -119,15 +119,15 @@ require_command() {
     command -v "$1" >/dev/null 2>&1 || die "未检测到 $1，$2"
 }
 
-# adb 不在 PATH 时退回到 local.properties 的 sdk.dir 或 ANDROID_HOME
+# adb 不在 PATH 时退回到 android/local.properties 的 sdk.dir 或 ANDROID_HOME
 resolve_adb() {
     if command -v adb >/dev/null 2>&1; then
         ADB="$(command -v adb)"
         return 0
     fi
     local sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-    if [[ -z "$sdk" && -f local.properties ]]; then
-        sdk="$(sed -n 's/^sdk\.dir=//p' local.properties | head -n 1)"
+    if [[ -z "$sdk" && -f android/local.properties ]]; then
+        sdk="$(sed -n 's/^sdk\.dir=//p' android/local.properties | head -n 1)"
     fi
     if [[ -n "$sdk" && -x "$sdk/platform-tools/adb" ]]; then
         ADB="$sdk/platform-tools/adb"
