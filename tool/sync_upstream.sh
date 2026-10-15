@@ -59,8 +59,9 @@ if [[ -z "$(git branch --show-current)" ]]; then
   echo "check out a branch first" >&2
   exit 1
 fi
-if ! git diff --cached --quiet; then
-  echo "staged changes present; commit or unstage them first" >&2
+if ! git diff --cached --quiet || ! git diff --quiet -- . ":(exclude)$CORE_PATH"; then
+  echo "uncommitted changes to tracked files; commit or stash them first:" >&2
+  git status --short --untracked-files=no -- . ":(exclude)$CORE_PATH" >&2
   exit 1
 fi
 if [[ -e "$(git rev-parse --git-path MERGE_HEAD)" || -e "$(git rev-parse --git-path CHERRY_PICK_HEAD)" ]]; then
