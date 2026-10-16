@@ -196,13 +196,45 @@ resolve_arch() {
 
 # setup.dart 会改写受版本控制的 env.json，构建结束后还原
 ENV_JSON_BACKUP=""
+PUBSPEC_BACKUP=""
 restore_env_json() {
     if [[ -n "$ENV_JSON_BACKUP" ]]; then
         printf '%s' "$ENV_JSON_BACKUP" > env.json
     fi
+    if [[ -n "$PUBSPEC_BACKUP" ]]; then
+        mv "$PUBSPEC_BACKUP" pubspec.yaml
+    fi
     if [[ -n "${BUILD_MARKER:-}" ]]; then
         rm -f "$BUILD_MARKER"
     fi
+}
+
+installed_version_code() {
+    local package code max=0
+    for package in com.follow.clash com.follow.clash.dev; do
+        code=$("$ADB" -s "$DEVICE" shell dumpsys package "$package" 2>/dev/null \
+            | sed -n 's/.*versionCode=\([0-9]*\).*/\1/p' | head -n 1 || true)
+        if [[ -n "$code" && "$code" -gt "$max" ]]; then
+            max=$code
+        fi
+    done
+    echo "$max"
+}
+
+# Android 拒绝覆盖安装内部编号更低的包，只能卸载重装，那会清掉应用数据；
+# 所以设备上已有更高编号时，临时把 pubspec 的构建号抬到它之上，构建后还原
+raise_build_number() {
+    [[ "$TARGET_PLATFORM" == "android" && -n "$DEVICE" ]] || return 0
+    local current installed
+    current="$(sed -n 's/^version: .*+\([0-9]*\)$/\1/p' pubspec.yaml)"
+    installed="$(installed_version_code)"
+    if [[ -z "$current" || "$installed" -lt "$current" ]]; then
+        return 0
+    fi
+    PUBSPEC_BACKUP="$(mktemp -t flclash-pubspec)"
+    cp pubspec.yaml "$PUBSPEC_BACKUP"
+    sed -i '' "s/^\(version: .*+\)$current\$/\1$((installed + 1))/" pubspec.yaml
+    log_info "设备上已装版本号 $installed，本次构建号从 $current 提高到 $((installed + 1))，以便覆盖安装保留数据"
 }
 
 build_package() {
@@ -225,6 +257,7 @@ build_package() {
     BUILD_MARKER="$(mktemp -t flclash-build)"
     trap restore_env_json EXIT
 
+    raise_build_number
     flutter pub get >/dev/null
 
     local build_start
@@ -253,13 +286,15 @@ deploy_device() {
 
     log_info "正在安装到设备 [$DEVICE]: $apk"
     local output
-    if output=$("$ADB" -s "$DEVICE" install -r -d "$apk" 2>&1); then
+    if output=$("$ADB" -s "$DEVICE" install -r "$apk" 2>&1); then
         log_success "成功安装到设备 [$DEVICE]！"
         return 0
     fi
     printf '%s\n' "$output" >&2
     if grep -q 'INSTALL_FAILED_UPDATE_INCOMPATIBLE' <<< "$output"; then
         log_warning "签名与设备上已安装的版本不一致，需先卸载旧版本再安装。"
+    elif grep -q 'INSTALL_FAILED_VERSION_DOWNGRADE' <<< "$output"; then
+        log_warning "设备上的内部版本号更高，Android 拒绝覆盖；不要卸载，否则会清掉应用数据。"
     elif grep -q 'INSTALL_FAILED_NO_MATCHING_ABIS' <<< "$output"; then
         log_warning "APK 架构 ($TARGET_ARCH) 与设备不匹配，请用 -a 指定正确架构。"
     else
