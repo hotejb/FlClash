@@ -94,16 +94,16 @@ parse_args() {
 
     case "$TARGET_PLATFORM" in
         android|macos) ;;
-        *) die "不支持的平台: $TARGET_PLATFORM（可选 android|macos）" ;;
+        *) die "不支持的平台: ${TARGET_PLATFORM}（可选 android|macos）" ;;
     esac
     case "$ENV_MODE" in
         stable|pre|dev) ;;
-        *) die "不支持的环境: $ENV_MODE（可选 stable|pre|dev）" ;;
+        *) die "不支持的环境: ${ENV_MODE}（可选 stable|pre|dev）" ;;
     esac
     case "$TARGET_ARCH" in
         ""|arm64|arm|amd64) ;;
         x86_64) TARGET_ARCH="amd64" ;;
-        *) die "不支持的架构: $TARGET_ARCH（可选 arm64|arm|amd64）" ;;
+        *) die "不支持的架构: ${TARGET_ARCH}（可选 arm64|arm|amd64）" ;;
     esac
     if [[ "$TARGET_PLATFORM" != "android" ]]; then
         [[ -z "$TARGET_ARCH" ]] || log_warning "--arch 只对 Android 生效，已忽略"
@@ -234,7 +234,7 @@ raise_build_number() {
     PUBSPEC_BACKUP="$(mktemp -t flclash-pubspec)"
     cp pubspec.yaml "$PUBSPEC_BACKUP"
     sed -i '' "s/^\(version: .*+\)$current\$/\1$((installed + 1))/" pubspec.yaml
-    log_info "设备上已装版本号 $installed，本次构建号从 $current 提高到 $((installed + 1))，以便覆盖安装保留数据"
+    log_info "设备上已装版本号 ${installed}，本次构建号从 $current 提高到 $((installed + 1))，以便覆盖安装保留数据"
 }
 
 build_package() {
