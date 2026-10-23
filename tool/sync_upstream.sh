@@ -142,6 +142,10 @@ sync_core() {
   alpha="$(core rev-parse upstream/Alpha)"
   if core merge-base --is-ancestor "$alpha" "$pointer"; then
     echo "    already on Alpha ${alpha:0:8}"
+    # The replay moved the pointer to upstream's Core, which the checkout
+    # does not follow on its own; the gate would build the previous Core.
+    core checkout --quiet --detach "$pointer"
+    core branch -f "$CORE_BRANCH" "$pointer"
     return
   fi
   base="$(core merge-base "$pointer" "$alpha")"
@@ -208,6 +212,9 @@ push_all() {
     echo "==> pushing $branch to $FORK_REMOTE/$target"
     remote_tip="$(git ls-remote --heads "$FORK_REMOTE" "$target" | cut -f1)"
     git push --force-with-lease="refs/heads/$target:$remote_tip" "$FORK_REMOTE" "HEAD:refs/heads/$target"
+    if [[ "$target" != "$branch" ]]; then
+      git branch -f "$target" HEAD
+    fi
   done
 }
 
