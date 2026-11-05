@@ -55,6 +55,17 @@ done
 
 core() { git -C "$CORE_PATH" "$@"; }
 
+# A replay can add a submodule or move its pointer, and the checkout does not
+# follow on its own. The Core is left out because its checkout moves separately.
+update_other_submodules() {
+  local paths
+  paths="$(git config -f .gitmodules --get-regexp '\.path$' | awk '{print $2}' | grep -vx "$CORE_PATH" || true)"
+  if [[ -n "$paths" ]]; then
+    # shellcheck disable=SC2086
+    git submodule update --init --recursive -- $paths
+  fi
+}
+
 if [[ -z "$(git branch --show-current)" ]]; then
   echo "check out a branch first" >&2
   exit 1
@@ -83,6 +94,7 @@ rollback() {
   if [[ -n "$start_layer" ]]; then
     core branch -f "$CORE_BRANCH" "$start_layer"
   fi
+  update_other_submodules || true
 }
 
 on_exit() {
@@ -220,6 +232,7 @@ push_all() {
 
 ((do_app)) && sync_app
 ((do_core)) && sync_core
+update_other_submodules
 
 echo "==> verifying"
 tool/verify_sync.sh ${verify_args[@]+"${verify_args[@]}"}
