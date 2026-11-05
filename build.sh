@@ -147,9 +147,9 @@ check_and_prepare_env() {
         require_command npm "setup.dart 需要用它安装 appdmg"
     fi
 
-    if git submodule status core/Clash.Meta | grep -q '^-'; then
-        log_info "初始化内核子模块 core/Clash.Meta..."
-        git submodule update --init --recursive core/Clash.Meta
+    if git submodule status | grep '^-' >/dev/null; then
+        log_info "初始化子模块..."
+        git submodule update --init --recursive
     fi
 
     if [[ "$AUTO_DEPLOY" == "true" ]]; then
