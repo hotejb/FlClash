@@ -106,6 +106,25 @@ on_exit() {
 }
 trap on_exit EXIT
 
+unmerged() { git diff -z --name-only --diff-filter=U; }
+
+# rerere writes the resolution recorded for a conflict it has seen before, and
+# stages it under rerere.autoupdate, but the cherry-pick still stops there; only
+# a conflict new to rerere needs a hand.
+continue_with_rerere() {
+  local pick picked=""
+  while pick="$(git rev-parse --quiet --verify CHERRY_PICK_HEAD)" && [[ "$pick" != "$picked" ]] &&
+    [[ -z "$(git rerere remaining)" && -z "$(unmerged | xargs -0 grep -l '^<<<<<<< ' || true)" ]]; do
+    echo "    reusing the recorded resolution for ${pick:0:8}"
+    unmerged | xargs -0 git add --
+    if git -c core.editor=true cherry-pick --continue; then
+      return 0
+    fi
+    picked="$pick"
+  done
+  return 1
+}
+
 # The official dev branch gets rewritten, so a merge would replay its old and
 # new histories against each other. The fork's own commits are replayed onto
 # the new tip instead, from the upstream commit the last sync built on.
@@ -128,7 +147,7 @@ sync_app() {
 
   git reset --quiet --keep "$upstream"
   # shellcheck disable=SC2086
-  if [[ -n "$commits" ]] && ! git cherry-pick --empty=drop $commits; then
+  if [[ -n "$commits" ]] && ! git cherry-pick --empty=drop $commits && ! continue_with_rerere; then
     echo "replaying the fork commits onto $ref failed:" >&2
     git --no-pager diff --name-only --diff-filter=U >&2
     exit 1

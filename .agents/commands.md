@@ -211,7 +211,9 @@ What those suites own:
 the mihomo Core (the commits between the submodule pointer and its merge base with `upstream/Alpha`) onto the latest
 Alpha, bumps `core/go.mod`, and commits both. `tool/verify_sync.sh` is the gate it runs: Core build, vet and tests, an
 arm64 Android vet of the gomobile packages, `flutter analyze` on tracked paths and the `setup_hooks` tests. A failing
-gate, a replay conflict or a Core conflict restores the branch and the Core, and nothing is pushed.
+gate, a replay conflict or a Core conflict restores the branch and the Core, and nothing is pushed. A replay conflict
+that `git rerere` already holds a resolution for is taken from it and the replay goes on, so resolve a new one once by
+hand with rerere enabled (`git config rerere.enabled true`) and the next sync gets past it.
 
 The official `dev` is rewritten from time to time, so a merge would set its old and new histories against each other.
 The fork's commits are the ones after the upstream commit the last sync built on, which a successful sync records in
