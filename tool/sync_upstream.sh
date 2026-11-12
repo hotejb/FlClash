@@ -31,12 +31,16 @@ do_app=1
 do_core=1
 do_push=0
 push_main=0
+full=0
 verify_args=()
 for arg in "$@"; do
   case "$arg" in
     --app-only) do_core=0 ;;
     --core-only) do_app=0 ;;
-    --full) verify_args+=(--full) ;;
+    --full)
+      full=1
+      verify_args+=(--full)
+      ;;
     --push) do_push=1 ;;
     --push-main)
       do_push=1
@@ -80,7 +84,10 @@ if [[ -e "$(git rev-parse --git-path MERGE_HEAD)" || -e "$(git rev-parse --git-p
   exit 1
 fi
 
+snapshot() { git rev-parse HEAD && git submodule status --recursive; }
+
 start_head="$(git rev-parse HEAD)"
+start_state="$(snapshot)"
 start_checkout="$(core rev-parse HEAD)"
 start_layer="$(core rev-parse --verify --quiet "refs/heads/$CORE_BRANCH" || true)"
 ok=0
@@ -109,21 +116,22 @@ trap on_exit EXIT
 unmerged() { git diff -z --name-only --diff-filter=U; }
 
 # rerere writes the resolution recorded for a conflict it has seen before, and
-# stages it under rerere.autoupdate, but the cherry-pick still stops there; only
-# a conflict new to rerere needs a hand.
-continue_with_rerere() {
-  local pick picked=""
-  while pick="$(git rev-parse --quiet --verify CHERRY_PICK_HEAD)" && [[ "$pick" != "$picked" ]] &&
+# stages it under rerere.autoupdate, but the cherry-pick or rebase still stops
+# there; only a conflict new to rerere needs a hand.
+continue_with_rerere() (
+  cd "$1"
+  local stop stopped=""
+  while stop="$(git rev-parse --quiet --verify "$2")" && [[ "$stop" != "$stopped" ]] &&
     [[ -z "$(git rerere remaining)" && -z "$(unmerged | xargs -0 grep -l '^<<<<<<< ' || true)" ]]; do
-    echo "    reusing the recorded resolution for ${pick:0:8}"
+    echo "    reusing the recorded resolution for ${stop:0:8}"
     unmerged | xargs -0 git add --
-    if git -c core.editor=true cherry-pick --continue; then
+    if git -c core.editor=true "$3" --continue; then
       return 0
     fi
-    picked="$pick"
+    stopped="$stop"
   done
   return 1
-}
+)
 
 # The official dev branch gets rewritten, so a merge would replay its old and
 # new histories against each other. The fork's own commits are replayed onto
@@ -147,7 +155,8 @@ sync_app() {
 
   git reset --quiet --keep "$upstream"
   # shellcheck disable=SC2086
-  if [[ -n "$commits" ]] && ! git cherry-pick --empty=drop $commits && ! continue_with_rerere; then
+  if [[ -n "$commits" ]] && ! git cherry-pick --empty=drop $commits &&
+    ! continue_with_rerere . CHERRY_PICK_HEAD cherry-pick; then
     echo "replaying the fork commits onto $ref failed:" >&2
     git --no-pager diff --name-only --diff-filter=U >&2
     exit 1
@@ -184,7 +193,9 @@ sync_core() {
   echo "    replaying $count layer commit(s) ${base:0:8}..${pointer:0:8} onto Alpha ${alpha:0:8}"
 
   core checkout --quiet --detach "$pointer"
-  if ! core rebase --quiet --onto "$alpha" "$base"; then
+  core config rerere.enabled true
+  if ! core rebase --quiet --onto "$alpha" "$base" &&
+    ! continue_with_rerere "$CORE_PATH" REBASE_HEAD rebase; then
     echo "the FlClash layer conflicts with Alpha ${alpha:0:8}; resolve it by hand" >&2
     exit 1
   fi
@@ -253,8 +264,12 @@ push_all() {
 ((do_core)) && sync_core
 update_other_submodules
 
-echo "==> verifying"
-tool/verify_sync.sh ${verify_args[@]+"${verify_args[@]}"}
+if ((!full)) && [[ "$(snapshot)" == "$start_state" ]]; then
+  echo "==> nothing changed, skipping the gate"
+else
+  echo "==> verifying"
+  tool/verify_sync.sh ${verify_args[@]+"${verify_args[@]}"}
+fi
 ok=1
 if [[ -n "$app_upstream" ]]; then
   git update-ref "$BASE_REF" "$app_upstream"
