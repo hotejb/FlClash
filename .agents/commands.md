@@ -243,7 +243,8 @@ arm64 Android vet of the gomobile packages, `flutter analyze` on tracked paths a
 gate, a replay conflict or a Core conflict restores the branch and the Core, and nothing is pushed. A replay or Core
 conflict that `git rerere` already holds a resolution for is taken from it and the replay goes on, so resolve a new one
 once by hand with rerere enabled (`git config rerere.enabled true`; the sync turns it on in `core/Clash.Meta` itself) and
-the next sync gets past it. A sync that leaves `HEAD` and every submodule where they were skips the gate unless `--full`
+the next sync gets past it. Before the Core is touched, the sync checks the `flutter` on `PATH` against the Flutter
+floor in the replayed `pubspec.yaml` and stops early when it is older. A sync that leaves `HEAD` and every submodule where they were skips the gate unless `--full`
 is passed.
 
 The official `dev` is rewritten from time to time, so a merge would set its old and new histories against each other.

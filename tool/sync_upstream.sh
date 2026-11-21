@@ -164,6 +164,19 @@ sync_app() {
   app_upstream="$upstream"
 }
 
+# Upstream raises its Flutter floor from time to time, and the gate's pub get
+# would only fail on it after the slow Core rebase and build.
+check_flutter() {
+  local need have
+  need="$(sed -n "s/^  flutter: *'>=\([0-9.]*\)'.*/\1/p" pubspec.yaml)"
+  [[ -n "$need" ]] || return 0
+  have="$(flutter --version --machine 2>/dev/null | sed -n 's/.*"frameworkVersion": *"\([^"]*\)".*/\1/p' || true)"
+  if [[ -z "$have" || "$(printf '%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]]; then
+    echo "pubspec.yaml needs Flutter >=$need but the flutter on PATH is ${have:-missing}; upgrade it and sync again" >&2
+    exit 1
+  fi
+}
+
 sync_core() {
   local pointer alpha base count new
   pointer="$(git rev-parse "HEAD:$CORE_PATH")"
@@ -261,6 +274,7 @@ push_all() {
 }
 
 ((do_app)) && sync_app
+check_flutter
 ((do_core)) && sync_core
 update_other_submodules
 
