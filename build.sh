@@ -2,7 +2,7 @@
 # ==============================================================================
 # FlClash 本地构建与部署工具
 #
-# 1. 打包：调用官方 setup.dart；Go 内核与 Rust 库由 Native Asset Hook 按需重编
+# 1. 打包：调用官方 tool/package.dart；Go 内核与 Rust 库由 Native Asset Hook 按需重编
 # 2. 同步（--sync，可选）：tool/sync_upstream.sh 合并官方 dev 并把内核适配层套到
 #    最新 Alpha，验证不过自动回滚；加 --push / --push-main 才推送
 # 3. 部署：检测到 USB 连接的 Android 设备时自动安装本次构建出的 APK
@@ -144,7 +144,7 @@ check_and_prepare_env() {
     require_command cargo "Rust 库由构建 Hook 编译"
     require_command rustc "Rust 库由构建 Hook 编译"
     if [[ "$TARGET_PLATFORM" == "macos" ]]; then
-        require_command npm "setup.dart 需要用它安装 appdmg"
+        require_command npm "tool/package.dart 需要用它安装 appdmg"
     fi
 
     if git submodule status | grep '^-' >/dev/null; then
@@ -194,7 +194,7 @@ resolve_arch() {
     log_info "按设备 [$DEVICE] 的 ABI ($abi) 选择架构 $TARGET_ARCH"
 }
 
-# setup.dart 会改写受版本控制的 env.json，构建结束后还原
+# tool/package.dart 会改写受版本控制的 env.json，构建结束后还原
 ENV_JSON_BACKUP=""
 PUBSPEC_BACKUP=""
 restore_env_json() {
@@ -240,7 +240,12 @@ raise_build_number() {
 build_package() {
     local args=("$TARGET_PLATFORM" --env "$ENV_MODE")
     if [[ "$TARGET_PLATFORM" == "android" ]]; then
-        args+=(--arch "$TARGET_ARCH")
+        # tool/package.dart 把 32 位 ARM 叫作 armv7
+        if [[ "$TARGET_ARCH" == "arm" ]]; then
+            args+=(--arch armv7)
+        else
+            args+=(--arch "$TARGET_ARCH")
+        fi
     fi
     if [[ "$VERBOSE" == "true" ]]; then
         args+=(--verbose)
@@ -262,7 +267,7 @@ build_package() {
 
     local build_start
     build_start=$(date +%s)
-    if ! dart setup.dart "${args[@]}"; then
+    if ! dart tool/package.dart "${args[@]}"; then
         log_error "构建失败；内核与 Rust Hook 的日志见 .dart_tool/setup_build_cache/hook.log"
         exit 1
     fi
