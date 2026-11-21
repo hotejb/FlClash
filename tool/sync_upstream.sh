@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Replays the fork's commits onto the official FlClash dev branch, then replays
+# Replays the fork's commits onto the official FlClash main branch, then replays
 # the FlClash layer of the mihomo Core on top of MetaCubeX's latest Alpha. The
 # result is kept only when tool/verify_sync.sh passes; otherwise the branch and
 # the Core go back to where they started. Only --push pushes; --push-main also
@@ -17,7 +17,7 @@ rm -f "$0"
 cd "$SYNC_UPSTREAM_ROOT"
 
 UPSTREAM_REMOTE="${UPSTREAM_REMOTE:-origin}"
-UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-dev}"
+UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-main}"
 MIHOMO_URL="https://github.com/MetaCubeX/mihomo.git"
 CORE_PATH="core/Clash.Meta"
 CORE_BRANCH="alpha-flclash"
@@ -133,7 +133,7 @@ continue_with_rerere() (
   return 1
 )
 
-# The official dev branch gets rewritten, so a merge would replay its old and
+# The official branches get rewritten, so a merge would replay their old and
 # new histories against each other. The fork's own commits are replayed onto
 # the new tip instead, from the upstream commit the last sync built on.
 sync_app() {

@@ -236,7 +236,7 @@ What those suites own:
 
 ## Syncing With Upstream
 
-`tool/sync_upstream.sh` replays the fork's own commits onto the official `origin/dev`, then replays the FlClash layer of
+`tool/sync_upstream.sh` replays the fork's own commits onto the official `origin/main`, then replays the FlClash layer of
 the mihomo Core (the commits between the submodule pointer and its merge base with `upstream/Alpha`) onto the latest
 Alpha, bumps `core/go.mod`, and commits both. `tool/verify_sync.sh` is the gate it runs: Core build, vet and tests, an
 arm64 Android vet of the gomobile packages, `flutter analyze` on tracked paths and the `setup_hooks` tests. A failing
@@ -247,7 +247,9 @@ the next sync gets past it. Before the Core is touched, the sync checks the `flu
 floor in the replayed `pubspec.yaml` and stops early when it is older. A sync that leaves `HEAD` and every submodule where they were skips the gate unless `--full`
 is passed.
 
-The official `dev` is rewritten from time to time, so a merge would set its old and new histories against each other.
+Releases land on the official `main`, which `dev` can trail, so the fork follows `main` and works on its own `main`;
+`UPSTREAM_BRANCH=dev` syncs onto `dev` instead. The official branches are rewritten from time to time, so a merge would
+set their old and new histories against each other.
 The fork's commits are the ones after the upstream commit the last sync built on, which a successful sync records in
 the local ref `refs/sync/upstream-base`; the previous Core commit is dropped and rebuilt. A fresh checkout has no such
 ref and falls back to the merge base, so set it by hand when that is wrong:

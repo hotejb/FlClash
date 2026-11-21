@@ -3,7 +3,7 @@
 # FlClash 本地构建与部署工具
 #
 # 1. 打包：调用官方 tool/package.dart；Go 内核与 Rust 库由 Native Asset Hook 按需重编
-# 2. 同步（--sync，可选）：tool/sync_upstream.sh 合并官方 dev 并把内核适配层套到
+# 2. 同步（--sync，可选）：tool/sync_upstream.sh 合并官方 main 并把内核适配层套到
 #    最新 Alpha，验证不过自动回滚；加 --push / --push-main 才推送
 # 3. 部署：检测到 USB 连接的 Android 设备时自动安装本次构建出的 APK
 # ==============================================================================
